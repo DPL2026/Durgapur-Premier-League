@@ -1,5 +1,9 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+} from 'firebase/auth';
 
 import {
   getFirestore,
@@ -21,24 +25,34 @@ import { Player, PlayerRole, Team } from './types';
 
 const env = (import.meta as any).env || {};
 
-/**
- * Firebase configuration
- *
- * GitHub Actions/Vite environment variables are used first.
- * The local firebase-applet-config.json is used as fallback.
- */
+/* =========================================================
+   FIREBASE CONFIG
+   ========================================================= */
+
 export const resolvedFirebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  apiKey:
+    env.VITE_FIREBASE_API_KEY ||
+    firebaseConfig.apiKey,
+
   authDomain:
-    env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+    env.VITE_FIREBASE_AUTH_DOMAIN ||
+    firebaseConfig.authDomain,
+
   projectId:
-    env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+    env.VITE_FIREBASE_PROJECT_ID ||
+    firebaseConfig.projectId,
+
   storageBucket:
-    env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+    env.VITE_FIREBASE_STORAGE_BUCKET ||
+    firebaseConfig.storageBucket,
+
   messagingSenderId:
     env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
     firebaseConfig.messagingSenderId,
-  appId: env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+
+  appId:
+    env.VITE_FIREBASE_APP_ID ||
+    firebaseConfig.appId,
 
   firestoreDatabaseId:
     env.VITE_FIREBASE_DATABASE_ID ||
@@ -50,45 +64,59 @@ export const resolvedFirebaseConfig = {
     '',
 };
 
-/**
- * Required environment variables
- */
-export const REQUIRED_FIREBASE_ENV_VARS: Record<string, string> = {
-  VITE_FIREBASE_API_KEY: firebaseConfig.apiKey,
-  VITE_FIREBASE_AUTH_DOMAIN: firebaseConfig.authDomain,
-  VITE_FIREBASE_PROJECT_ID: firebaseConfig.projectId,
-  VITE_FIREBASE_STORAGE_BUCKET: firebaseConfig.storageBucket,
+/* =========================================================
+   REQUIRED ENVIRONMENT VARIABLES
+   ========================================================= */
+
+export const REQUIRED_FIREBASE_ENV_VARS: Record<
+  string,
+  string
+> = {
+  VITE_FIREBASE_API_KEY:
+    firebaseConfig.apiKey,
+
+  VITE_FIREBASE_AUTH_DOMAIN:
+    firebaseConfig.authDomain,
+
+  VITE_FIREBASE_PROJECT_ID:
+    firebaseConfig.projectId,
+
+  VITE_FIREBASE_STORAGE_BUCKET:
+    firebaseConfig.storageBucket,
+
   VITE_FIREBASE_MESSAGING_SENDER_ID:
     firebaseConfig.messagingSenderId,
-  VITE_FIREBASE_APP_ID: firebaseConfig.appId,
+
+  VITE_FIREBASE_APP_ID:
+    firebaseConfig.appId,
+
   VITE_FIREBASE_DATABASE_ID:
     firebaseConfig.firestoreDatabaseId || '',
+
   VITE_FIREBASE_OAUTH_CLIENT_ID:
     firebaseConfig.oAuthClientId || '',
 };
 
-/**
- * Initialize Firebase
- */
+/* =========================================================
+   INITIALIZE FIREBASE
+   ========================================================= */
+
 const app = initializeApp(resolvedFirebaseConfig);
 
-/**
- * IMPORTANT:
- * Use the default Firestore database.
- *
- * This avoids accidentally connecting to a wrong database ID.
- */
 export const db = getFirestore(app);
 
 export const auth = getAuth(app);
 
-export const googleProvider = new GoogleAuthProvider();
+export const googleProvider =
+  new GoogleAuthProvider();
 
 /* =========================================================
    PLAYER HELPERS
    ========================================================= */
 
-function playerToFirestoreDoc(player: Player) {
+function playerToFirestoreDoc(
+  player: Player
+) {
   return {
     ...player,
     visibility: 'public',
@@ -96,13 +124,18 @@ function playerToFirestoreDoc(player: Player) {
   };
 }
 
-/**
- * Save a player to Firestore
- */
+/* =========================================================
+   SAVE PLAYER
+   ========================================================= */
+
 export async function savePlayerToFirestore(
   player: Player
 ): Promise<void> {
-  const playerRef = doc(db, 'players', player.id);
+  const playerRef = doc(
+    db,
+    'players',
+    player.id
+  );
 
   await setDoc(
     playerRef,
@@ -111,14 +144,19 @@ export async function savePlayerToFirestore(
   );
 }
 
-/**
- * Update player auction information
- */
+/* =========================================================
+   UPDATE PLAYER AUCTION
+   ========================================================= */
+
 export async function updatePlayerAuctionInFirestore(
   playerId: string,
   updates: Partial<Player>
 ): Promise<void> {
-  const playerRef = doc(db, 'players', playerId);
+  const playerRef = doc(
+    db,
+    'players',
+    playerId
+  );
 
   await updateDoc(playerRef, {
     ...updates,
@@ -126,13 +164,18 @@ export async function updatePlayerAuctionInFirestore(
   });
 }
 
-/**
- * Delete player
- */
+/* =========================================================
+   DELETE PLAYER
+   ========================================================= */
+
 export async function deletePlayerFromFirestore(
   playerId: string
 ): Promise<void> {
-  const playerRef = doc(db, 'players', playerId);
+  const playerRef = doc(
+    db,
+    'players',
+    playerId
+  );
 
   await deleteDoc(playerRef);
 }
@@ -141,7 +184,9 @@ export async function deletePlayerFromFirestore(
    TEAM HELPERS
    ========================================================= */
 
-function teamToFirestoreDoc(team: Team) {
+function teamToFirestoreDoc(
+  team: Team
+) {
   return {
     ...team,
     visibility: 'public',
@@ -149,13 +194,31 @@ function teamToFirestoreDoc(team: Team) {
   };
 }
 
+/* =========================================================
+   FIRESTORE DOC -> TEAM
+   ========================================================= */
+
 /**
- * Save team to Firestore
+ * Kept for compatibility with App.tsx.
  */
+export function firestoreDocToTeam(
+  data: any
+): Team {
+  return data as Team;
+}
+
+/* =========================================================
+   SAVE TEAM
+   ========================================================= */
+
 export async function saveTeamToFirestore(
   team: Team
 ): Promise<void> {
-  const teamRef = doc(db, 'teams', team.id);
+  const teamRef = doc(
+    db,
+    'teams',
+    team.id
+  );
 
   await setDoc(
     teamRef,
@@ -164,14 +227,19 @@ export async function saveTeamToFirestore(
   );
 }
 
-/**
- * Update team purse
- */
+/* =========================================================
+   UPDATE TEAM PURSE
+   ========================================================= */
+
 export async function updateTeamPurseInFirestore(
   teamId: string,
   purse: number
 ): Promise<void> {
-  const teamRef = doc(db, 'teams', teamId);
+  const teamRef = doc(
+    db,
+    'teams',
+    teamId
+  );
 
   await updateDoc(teamRef, {
     purse,
@@ -179,14 +247,19 @@ export async function updateTeamPurseInFirestore(
   });
 }
 
-/**
- * Update team
- */
+/* =========================================================
+   UPDATE TEAM
+   ========================================================= */
+
 export async function updateTeamInFirestore(
   teamId: string,
   updates: Partial<Team>
 ): Promise<void> {
-  const teamRef = doc(db, 'teams', teamId);
+  const teamRef = doc(
+    db,
+    'teams',
+    teamId
+  );
 
   await updateDoc(teamRef, {
     ...updates,
@@ -194,13 +267,18 @@ export async function updateTeamInFirestore(
   });
 }
 
-/**
- * Delete team
- */
+/* =========================================================
+   DELETE TEAM
+   ========================================================= */
+
 export async function deleteTeamFromFirestore(
   teamId: string
 ): Promise<void> {
-  const teamRef = doc(db, 'teams', teamId);
+  const teamRef = doc(
+    db,
+    'teams',
+    teamId
+  );
 
   await deleteDoc(teamRef);
 }
@@ -209,29 +287,30 @@ export async function deleteTeamFromFirestore(
    REALTIME PLAYERS
    ========================================================= */
 
-/**
- * Subscribe to public players.
- *
- * Every device/user receives Firestore updates automatically.
- */
 export function subscribeToPublicPlayers(
   callback: (players: Player[]) => void,
   onError?: (error: Error) => void
 ) {
-  const playersRef = collection(db, 'players');
+  const playersRef =
+    collection(db, 'players');
 
   const playersQuery = query(
     playersRef,
-    where('visibility', '==', 'public')
+    where(
+      'visibility',
+      '==',
+      'public'
+    )
   );
 
   return onSnapshot(
     playersQuery,
     (snapshot) => {
-      const players: Player[] = snapshot.docs.map(
-        (snapshotDoc) =>
-          snapshotDoc.data() as Player
-      );
+      const players: Player[] =
+        snapshot.docs.map(
+          (snapshotDoc) =>
+            snapshotDoc.data() as Player
+        );
 
       callback(players);
     },
@@ -254,20 +333,28 @@ export function subscribeToPublicTeams(
   callback: (teams: Team[]) => void,
   onError?: (error: Error) => void
 ) {
-  const teamsRef = collection(db, 'teams');
+  const teamsRef =
+    collection(db, 'teams');
 
   const teamsQuery = query(
     teamsRef,
-    where('visibility', '==', 'public')
+    where(
+      'visibility',
+      '==',
+      'public'
+    )
   );
 
   return onSnapshot(
     teamsQuery,
     (snapshot) => {
-      const teams: Team[] = snapshot.docs.map(
-        (snapshotDoc) =>
-          snapshotDoc.data() as Team
-      );
+      const teams: Team[] =
+        snapshot.docs.map(
+          (snapshotDoc) =>
+            firestoreDocToTeam(
+              snapshotDoc.data()
+            )
+        );
 
       callback(teams);
     },
@@ -293,11 +380,18 @@ export async function fetchOrSeedFirestore(
   players: Player[];
   teams: Team[];
 }> {
-  const playersRef = collection(db, 'players');
+  /* ---------------- PLAYERS ---------------- */
+
+  const playersRef =
+    collection(db, 'players');
 
   const playersQuery = query(
     playersRef,
-    where('visibility', '==', 'public')
+    where(
+      'visibility',
+      '==',
+      'public'
+    )
   );
 
   const playersSnapshot =
@@ -308,21 +402,33 @@ export async function fetchOrSeedFirestore(
   if (playersSnapshot.empty) {
     players = initialPlayers;
 
-    for (const player of initialPlayers) {
-      await savePlayerToFirestore(player);
+    for (
+      const player of initialPlayers
+    ) {
+      await savePlayerToFirestore(
+        player
+      );
     }
   } else {
-    players = playersSnapshot.docs.map(
-      (snapshotDoc) =>
-        snapshotDoc.data() as Player
-    );
+    players =
+      playersSnapshot.docs.map(
+        (snapshotDoc) =>
+          snapshotDoc.data() as Player
+      );
   }
 
-  const teamsRef = collection(db, 'teams');
+  /* ---------------- TEAMS ---------------- */
+
+  const teamsRef =
+    collection(db, 'teams');
 
   const teamsQuery = query(
     teamsRef,
-    where('visibility', '==', 'public')
+    where(
+      'visibility',
+      '==',
+      'public'
+    )
   );
 
   const teamsSnapshot =
@@ -333,14 +439,21 @@ export async function fetchOrSeedFirestore(
   if (teamsSnapshot.empty) {
     teams = initialTeams;
 
-    for (const team of initialTeams) {
-      await saveTeamToFirestore(team);
+    for (
+      const team of initialTeams
+    ) {
+      await saveTeamToFirestore(
+        team
+      );
     }
   } else {
-    teams = teamsSnapshot.docs.map(
-      (snapshotDoc) =>
-        snapshotDoc.data() as Team
-    );
+    teams =
+      teamsSnapshot.docs.map(
+        (snapshotDoc) =>
+          firestoreDocToTeam(
+            snapshotDoc.data()
+          )
+      );
   }
 
   return {
@@ -350,18 +463,18 @@ export async function fetchOrSeedFirestore(
 }
 
 /* =========================================================
-   OWNER UPLOADED PHOTOS
+   OWNER PHOTO
    ========================================================= */
 
-/**
- * Save owner uploaded photo information
- * to the player document.
- */
 export async function savePlayerPhotoToFirestore(
   playerId: string,
   photoUrl: string
 ): Promise<void> {
-  const playerRef = doc(db, 'players', playerId);
+  const playerRef = doc(
+    db,
+    'players',
+    playerId
+  );
 
   await updateDoc(playerRef, {
     photo: photoUrl,
@@ -369,13 +482,14 @@ export async function savePlayerPhotoToFirestore(
   });
 }
 
-/**
- * Remove player photo.
- */
 export async function removePlayerPhotoFromFirestore(
   playerId: string
 ): Promise<void> {
-  const playerRef = doc(db, 'players', playerId);
+  const playerRef = doc(
+    db,
+    'players',
+    playerId
+  );
 
   await updateDoc(playerRef, {
     photo: deleteField(),
@@ -392,86 +506,147 @@ export async function compressImage(
   maxWidth = 1000,
   quality = 0.8
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+  return new Promise(
+    (resolve, reject) => {
+      const reader =
+        new FileReader();
 
-    reader.onload = () => {
-      const img = new Image();
+      reader.onload = () => {
+        const img =
+          new Image();
 
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+        img.onload = () => {
+          let width =
+            img.width;
 
-        if (width > maxWidth) {
-          const ratio = maxWidth / width;
+          let height =
+            img.height;
 
-          width = maxWidth;
-          height = Math.round(height * ratio);
-        }
+          if (
+            width > maxWidth
+          ) {
+            const ratio =
+              maxWidth /
+              width;
 
-        const canvas =
-          document.createElement('canvas');
+            width =
+              maxWidth;
 
-        canvas.width = width;
-        canvas.height = height;
+            height =
+              Math.round(
+                height * ratio
+              );
+          }
 
-        const ctx = canvas.getContext('2d');
+          const canvas =
+            document.createElement(
+              'canvas'
+            );
 
-        if (!ctx) {
-          reject(
-            new Error(
-              'Could not create canvas context'
+          canvas.width =
+            width;
+
+          canvas.height =
+            height;
+
+          const ctx =
+            canvas.getContext(
+              '2d'
+            );
+
+          if (!ctx) {
+            reject(
+              new Error(
+                'Could not create canvas context'
+              )
+            );
+            return;
+          }
+
+          ctx.drawImage(
+            img,
+            0,
+            0,
+            width,
+            height
+          );
+
+          resolve(
+            canvas.toDataURL(
+              'image/jpeg',
+              quality
             )
           );
-          return;
-        }
+        };
 
-        ctx.drawImage(
-          img,
-          0,
-          0,
-          width,
-          height
-        );
-
-        const result =
-          canvas.toDataURL(
-            'image/jpeg',
-            quality
+        img.onerror = () => {
+          reject(
+            new Error(
+              'Could not load image'
+            )
           );
+        };
 
-        resolve(result);
+        img.src =
+          reader.result as string;
       };
 
-      img.onerror = () => {
+      reader.onerror = () => {
         reject(
-          new Error('Could not load image')
+          new Error(
+            'Could not read image'
+          )
         );
       };
 
-      img.src = reader.result as string;
-    };
-
-    reader.onerror = () => {
-      reject(
-        new Error('Could not read image')
+      reader.readAsDataURL(
+        file
       );
-    };
-
-    reader.readAsDataURL(file);
-  });
+    }
+  );
 }
 
 /* =========================================================
-   GOOGLE AUTH
+   COMPATIBILITY EXPORT
+   App.tsx + OwnerBoard.tsx use this name
+   ========================================================= */
+
+export async function compressImageToDataUrl(
+  file: File,
+  maxWidth = 1000,
+  quality = 0.8
+): Promise<string> {
+  return compressImage(
+    file,
+    maxWidth,
+    quality
+  );
+}
+
+/* =========================================================
+   GOOGLE SIGN-IN
    ========================================================= */
 
 export async function signInWithGoogle() {
-  const { signInWithPopup } =
-    await import('firebase/auth');
-
   return signInWithPopup(
     auth,
     googleProvider
   );
 }
+
+/* =========================================================
+   MASTER OWNER GOOGLE SIGN-IN
+   OwnerBoard.tsx uses this name.
+   ========================================================= */
+
+export async function signInMasterOwnerWithGoogle() {
+  return signInWithGoogle();
+}
+
+/* =========================================================
+   LEGACY OWNER PHOTOS EXPORT
+   ========================================================= */
+
+export {
+  OWNER_UPLOADED_PHOTOS,
+};
