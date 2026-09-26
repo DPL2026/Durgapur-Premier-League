@@ -20,8 +20,7 @@ import {
 } from 'firebase/firestore';
 
 import firebaseConfig from '../firebase-applet-config.json';
-import { OWNER_UPLOADED_PHOTOS } from './data/uploadedPhotos';
-import { Player, PlayerRole, Team } from './types';
+import { Player, Team } from './types';
 
 const env = (import.meta as any).env || {};
 
@@ -65,7 +64,7 @@ export const resolvedFirebaseConfig = {
 };
 
 /* =========================================================
-   REQUIRED ENVIRONMENT VARIABLES
+   REQUIRED FIREBASE ENVIRONMENT VARIABLES
    ========================================================= */
 
 export const REQUIRED_FIREBASE_ENV_VARS: Record<
@@ -73,22 +72,22 @@ export const REQUIRED_FIREBASE_ENV_VARS: Record<
   string
 > = {
   VITE_FIREBASE_API_KEY:
-    firebaseConfig.apiKey,
+    firebaseConfig.apiKey || '',
 
   VITE_FIREBASE_AUTH_DOMAIN:
-    firebaseConfig.authDomain,
+    firebaseConfig.authDomain || '',
 
   VITE_FIREBASE_PROJECT_ID:
-    firebaseConfig.projectId,
+    firebaseConfig.projectId || '',
 
   VITE_FIREBASE_STORAGE_BUCKET:
-    firebaseConfig.storageBucket,
+    firebaseConfig.storageBucket || '',
 
   VITE_FIREBASE_MESSAGING_SENDER_ID:
-    firebaseConfig.messagingSenderId,
+    firebaseConfig.messagingSenderId || '',
 
   VITE_FIREBASE_APP_ID:
-    firebaseConfig.appId,
+    firebaseConfig.appId || '',
 
   VITE_FIREBASE_DATABASE_ID:
     firebaseConfig.firestoreDatabaseId || '',
@@ -140,12 +139,14 @@ export async function savePlayerToFirestore(
   await setDoc(
     playerRef,
     playerToFirestoreDoc(player),
-    { merge: true }
+    {
+      merge: true,
+    }
   );
 }
 
 /* =========================================================
-   UPDATE PLAYER AUCTION
+   UPDATE PLAYER / AUCTION
    ========================================================= */
 
 export async function updatePlayerAuctionInFirestore(
@@ -195,12 +196,10 @@ function teamToFirestoreDoc(
 }
 
 /* =========================================================
-   FIRESTORE DOC -> TEAM
+   FIRESTORE DOCUMENT -> TEAM
+   Required by App.tsx
    ========================================================= */
 
-/**
- * Kept for compatibility with App.tsx.
- */
 export function firestoreDocToTeam(
   data: any
 ): Team {
@@ -223,7 +222,9 @@ export async function saveTeamToFirestore(
   await setDoc(
     teamRef,
     teamToFirestoreDoc(team),
-    { merge: true }
+    {
+      merge: true,
+    }
   );
 }
 
@@ -305,6 +306,7 @@ export function subscribeToPublicPlayers(
 
   return onSnapshot(
     playersQuery,
+
     (snapshot) => {
       const players: Player[] =
         snapshot.docs.map(
@@ -314,13 +316,16 @@ export function subscribeToPublicPlayers(
 
       callback(players);
     },
+
     (error) => {
       console.error(
         'Firestore players subscription error:',
         error
       );
 
-      onError?.(error);
+      if (onError) {
+        onError(error);
+      }
     }
   );
 }
@@ -347,6 +352,7 @@ export function subscribeToPublicTeams(
 
   return onSnapshot(
     teamsQuery,
+
     (snapshot) => {
       const teams: Team[] =
         snapshot.docs.map(
@@ -358,19 +364,22 @@ export function subscribeToPublicTeams(
 
       callback(teams);
     },
+
     (error) => {
       console.error(
         'Firestore teams subscription error:',
         error
       );
 
-      onError?.(error);
+      if (onError) {
+        onError(error);
+      }
     }
   );
 }
 
 /* =========================================================
-   INITIAL LOAD / SEED
+   INITIAL LOAD / SEED FIRESTORE
    ========================================================= */
 
 export async function fetchOrSeedFirestore(
@@ -380,6 +389,7 @@ export async function fetchOrSeedFirestore(
   players: Player[];
   teams: Team[];
 }> {
+
   /* ---------------- PLAYERS ---------------- */
 
   const playersRef =
@@ -400,6 +410,7 @@ export async function fetchOrSeedFirestore(
   let players: Player[];
 
   if (playersSnapshot.empty) {
+
     players = initialPlayers;
 
     for (
@@ -409,7 +420,9 @@ export async function fetchOrSeedFirestore(
         player
       );
     }
+
   } else {
+
     players =
       playersSnapshot.docs.map(
         (snapshotDoc) =>
@@ -437,6 +450,7 @@ export async function fetchOrSeedFirestore(
   let teams: Team[];
 
   if (teamsSnapshot.empty) {
+
     teams = initialTeams;
 
     for (
@@ -446,7 +460,9 @@ export async function fetchOrSeedFirestore(
         team
       );
     }
+
   } else {
+
     teams =
       teamsSnapshot.docs.map(
         (snapshotDoc) =>
@@ -463,7 +479,7 @@ export async function fetchOrSeedFirestore(
 }
 
 /* =========================================================
-   OWNER PHOTO
+   PLAYER PHOTO
    ========================================================= */
 
 export async function savePlayerPhotoToFirestore(
@@ -481,6 +497,10 @@ export async function savePlayerPhotoToFirestore(
     updatedAt: Date.now(),
   });
 }
+
+/* =========================================================
+   REMOVE PLAYER PHOTO
+   ========================================================= */
 
 export async function removePlayerPhotoFromFirestore(
   playerId: string
@@ -506,16 +526,20 @@ export async function compressImage(
   maxWidth = 1000,
   quality = 0.8
 ): Promise<string> {
+
   return new Promise(
     (resolve, reject) => {
+
       const reader =
         new FileReader();
 
       reader.onload = () => {
+
         const img =
           new Image();
 
         img.onload = () => {
+
           let width =
             img.width;
 
@@ -525,9 +549,9 @@ export async function compressImage(
           if (
             width > maxWidth
           ) {
+
             const ratio =
-              maxWidth /
-              width;
+              maxWidth / width;
 
             width =
               maxWidth;
@@ -555,11 +579,13 @@ export async function compressImage(
             );
 
           if (!ctx) {
+
             reject(
               new Error(
                 'Could not create canvas context'
               )
             );
+
             return;
           }
 
@@ -571,15 +597,17 @@ export async function compressImage(
             height
           );
 
-          resolve(
+          const dataUrl =
             canvas.toDataURL(
               'image/jpeg',
               quality
-            )
-          );
+            );
+
+          resolve(dataUrl);
         };
 
         img.onerror = () => {
+
           reject(
             new Error(
               'Could not load image'
@@ -592,6 +620,7 @@ export async function compressImage(
       };
 
       reader.onerror = () => {
+
         reject(
           new Error(
             'Could not read image'
@@ -599,16 +628,14 @@ export async function compressImage(
         );
       };
 
-      reader.readAsDataURL(
-        file
-      );
+      reader.readAsDataURL(file);
     }
   );
 }
 
 /* =========================================================
    COMPATIBILITY EXPORT
-   App.tsx + OwnerBoard.tsx use this name
+   App.tsx / OwnerBoard.tsx
    ========================================================= */
 
 export async function compressImageToDataUrl(
@@ -616,6 +643,7 @@ export async function compressImageToDataUrl(
   maxWidth = 1000,
   quality = 0.8
 ): Promise<string> {
+
   return compressImage(
     file,
     maxWidth,
@@ -628,6 +656,7 @@ export async function compressImageToDataUrl(
    ========================================================= */
 
 export async function signInWithGoogle() {
+
   return signInWithPopup(
     auth,
     googleProvider
@@ -636,17 +665,10 @@ export async function signInWithGoogle() {
 
 /* =========================================================
    MASTER OWNER GOOGLE SIGN-IN
-   OwnerBoard.tsx uses this name.
+   OwnerBoard.tsx requires this export.
    ========================================================= */
 
 export async function signInMasterOwnerWithGoogle() {
+
   return signInWithGoogle();
 }
-
-/* =========================================================
-   LEGACY OWNER PHOTOS EXPORT
-   ========================================================= */
-
-export {
-  OWNER_UPLOADED_PHOTOS,
-};
