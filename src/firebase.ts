@@ -67,10 +67,7 @@ export const resolvedFirebaseConfig = {
    REQUIRED FIREBASE ENVIRONMENT VARIABLES
    ========================================================= */
 
-export const REQUIRED_FIREBASE_ENV_VARS: Record<
-  string,
-  string
-> = {
+export const REQUIRED_FIREBASE_ENV_VARS: Record<string, string> = {
   VITE_FIREBASE_API_KEY:
     firebaseConfig.apiKey || '',
 
@@ -113,9 +110,7 @@ export const googleProvider =
    PLAYER HELPERS
    ========================================================= */
 
-function playerToFirestoreDoc(
-  player: Player
-) {
+function playerToFirestoreDoc(player: Player) {
   return {
     ...player,
     visibility: 'public',
@@ -129,20 +124,47 @@ function playerToFirestoreDoc(
 
 export async function savePlayerToFirestore(
   player: Player
-): Promise<void> {
-  const playerRef = doc(
-    db,
-    'players',
-    player.id
-  );
+): Promise<Player> {
 
-  await setDoc(
-    playerRef,
-    playerToFirestoreDoc(player),
-    {
-      merge: true,
-    }
-  );
+  try {
+    const playerRef = doc(
+      db,
+      'players',
+      player.id
+    );
+
+    const firestoreData =
+      playerToFirestoreDoc(player);
+
+    await setDoc(
+      playerRef,
+      firestoreData,
+      {
+        merge: true,
+      }
+    );
+
+    console.log(
+      '✅ Player saved to Firestore:',
+      player.id,
+      player.photo
+        ? 'Photo included'
+        : 'No photo'
+    );
+
+    return {
+      ...player,
+    };
+
+  } catch (error) {
+
+    console.error(
+      '❌ Failed to save player to Firestore:',
+      error
+    );
+
+    throw error;
+  }
 }
 
 /* =========================================================
@@ -153,16 +175,32 @@ export async function updatePlayerAuctionInFirestore(
   playerId: string,
   updates: Partial<Player>
 ): Promise<void> {
-  const playerRef = doc(
-    db,
-    'players',
-    playerId
-  );
 
-  await updateDoc(playerRef, {
-    ...updates,
-    updatedAt: Date.now(),
-  });
+  try {
+
+    const playerRef = doc(
+      db,
+      'players',
+      playerId
+    );
+
+    await updateDoc(
+      playerRef,
+      {
+        ...updates,
+        updatedAt: Date.now(),
+      }
+    );
+
+  } catch (error) {
+
+    console.error(
+      '❌ Failed to update player:',
+      error
+    );
+
+    throw error;
+  }
 }
 
 /* =========================================================
@@ -172,6 +210,7 @@ export async function updatePlayerAuctionInFirestore(
 export async function deletePlayerFromFirestore(
   playerId: string
 ): Promise<void> {
+
   const playerRef = doc(
     db,
     'players',
@@ -185,9 +224,7 @@ export async function deletePlayerFromFirestore(
    TEAM HELPERS
    ========================================================= */
 
-function teamToFirestoreDoc(
-  team: Team
-) {
+function teamToFirestoreDoc(team: Team) {
   return {
     ...team,
     visibility: 'public',
@@ -197,7 +234,6 @@ function teamToFirestoreDoc(
 
 /* =========================================================
    FIRESTORE DOCUMENT -> TEAM
-   Required by App.tsx
    ========================================================= */
 
 export function firestoreDocToTeam(
@@ -213,6 +249,7 @@ export function firestoreDocToTeam(
 export async function saveTeamToFirestore(
   team: Team
 ): Promise<void> {
+
   const teamRef = doc(
     db,
     'teams',
@@ -236,16 +273,20 @@ export async function updateTeamPurseInFirestore(
   teamId: string,
   purse: number
 ): Promise<void> {
+
   const teamRef = doc(
     db,
     'teams',
     teamId
   );
 
-  await updateDoc(teamRef, {
-    purse,
-    updatedAt: Date.now(),
-  });
+  await updateDoc(
+    teamRef,
+    {
+      purse,
+      updatedAt: Date.now(),
+    }
+  );
 }
 
 /* =========================================================
@@ -256,16 +297,20 @@ export async function updateTeamInFirestore(
   teamId: string,
   updates: Partial<Team>
 ): Promise<void> {
+
   const teamRef = doc(
     db,
     'teams',
     teamId
   );
 
-  await updateDoc(teamRef, {
-    ...updates,
-    updatedAt: Date.now(),
-  });
+  await updateDoc(
+    teamRef,
+    {
+      ...updates,
+      updatedAt: Date.now(),
+    }
+  );
 }
 
 /* =========================================================
@@ -275,6 +320,7 @@ export async function updateTeamInFirestore(
 export async function deleteTeamFromFirestore(
   teamId: string
 ): Promise<void> {
+
   const teamRef = doc(
     db,
     'teams',
@@ -292,22 +338,25 @@ export function subscribeToPublicPlayers(
   callback: (players: Player[]) => void,
   onError?: (error: Error) => void
 ) {
+
   const playersRef =
     collection(db, 'players');
 
-  const playersQuery = query(
-    playersRef,
-    where(
-      'visibility',
-      '==',
-      'public'
-    )
-  );
+  const playersQuery =
+    query(
+      playersRef,
+      where(
+        'visibility',
+        '==',
+        'public'
+      )
+    );
 
   return onSnapshot(
     playersQuery,
 
     (snapshot) => {
+
       const players: Player[] =
         snapshot.docs.map(
           (snapshotDoc) =>
@@ -318,14 +367,13 @@ export function subscribeToPublicPlayers(
     },
 
     (error) => {
+
       console.error(
-        'Firestore players subscription error:',
+        '❌ Firestore players subscription error:',
         error
       );
 
-      if (onError) {
-        onError(error);
-      }
+      onError?.(error);
     }
   );
 }
@@ -338,22 +386,25 @@ export function subscribeToPublicTeams(
   callback: (teams: Team[]) => void,
   onError?: (error: Error) => void
 ) {
+
   const teamsRef =
     collection(db, 'teams');
 
-  const teamsQuery = query(
-    teamsRef,
-    where(
-      'visibility',
-      '==',
-      'public'
-    )
-  );
+  const teamsQuery =
+    query(
+      teamsRef,
+      where(
+        'visibility',
+        '==',
+        'public'
+      )
+    );
 
   return onSnapshot(
     teamsQuery,
 
     (snapshot) => {
+
       const teams: Team[] =
         snapshot.docs.map(
           (snapshotDoc) =>
@@ -366,14 +417,13 @@ export function subscribeToPublicTeams(
     },
 
     (error) => {
+
       console.error(
-        'Firestore teams subscription error:',
+        '❌ Firestore teams subscription error:',
         error
       );
 
-      if (onError) {
-        onError(error);
-      }
+      onError?.(error);
     }
   );
 }
@@ -395,14 +445,15 @@ export async function fetchOrSeedFirestore(
   const playersRef =
     collection(db, 'players');
 
-  const playersQuery = query(
-    playersRef,
-    where(
-      'visibility',
-      '==',
-      'public'
-    )
-  );
+  const playersQuery =
+    query(
+      playersRef,
+      where(
+        'visibility',
+        '==',
+        'public'
+      )
+    );
 
   const playersSnapshot =
     await getDocs(playersQuery);
@@ -413,9 +464,8 @@ export async function fetchOrSeedFirestore(
 
     players = initialPlayers;
 
-    for (
-      const player of initialPlayers
-    ) {
+    for (const player of initialPlayers) {
+
       await savePlayerToFirestore(
         player
       );
@@ -435,14 +485,15 @@ export async function fetchOrSeedFirestore(
   const teamsRef =
     collection(db, 'teams');
 
-  const teamsQuery = query(
-    teamsRef,
-    where(
-      'visibility',
-      '==',
-      'public'
-    )
-  );
+  const teamsQuery =
+    query(
+      teamsRef,
+      where(
+        'visibility',
+        '==',
+        'public'
+      )
+    );
 
   const teamsSnapshot =
     await getDocs(teamsQuery);
@@ -453,9 +504,8 @@ export async function fetchOrSeedFirestore(
 
     teams = initialTeams;
 
-    for (
-      const team of initialTeams
-    ) {
+    for (const team of initialTeams) {
+
       await saveTeamToFirestore(
         team
       );
@@ -479,23 +529,44 @@ export async function fetchOrSeedFirestore(
 }
 
 /* =========================================================
-   PLAYER PHOTO
+   SAVE PLAYER PHOTO
    ========================================================= */
 
 export async function savePlayerPhotoToFirestore(
   playerId: string,
   photoUrl: string
 ): Promise<void> {
-  const playerRef = doc(
-    db,
-    'players',
-    playerId
-  );
 
-  await updateDoc(playerRef, {
-    photo: photoUrl,
-    updatedAt: Date.now(),
-  });
+  try {
+
+    const playerRef = doc(
+      db,
+      'players',
+      playerId
+    );
+
+    await updateDoc(
+      playerRef,
+      {
+        photo: photoUrl,
+        updatedAt: Date.now(),
+      }
+    );
+
+    console.log(
+      '✅ Player photo saved:',
+      playerId
+    );
+
+  } catch (error) {
+
+    console.error(
+      '❌ Failed to save player photo:',
+      error
+    );
+
+    throw error;
+  }
 }
 
 /* =========================================================
@@ -505,26 +576,32 @@ export async function savePlayerPhotoToFirestore(
 export async function removePlayerPhotoFromFirestore(
   playerId: string
 ): Promise<void> {
+
   const playerRef = doc(
     db,
     'players',
     playerId
   );
 
-  await updateDoc(playerRef, {
-    photo: deleteField(),
-    updatedAt: Date.now(),
-  });
+  await updateDoc(
+    playerRef,
+    {
+      photo: deleteField(),
+      updatedAt: Date.now(),
+    }
+  );
 }
 
 /* =========================================================
    IMAGE COMPRESSION
+   =========================================================
+   Smaller image = safer Firestore document size.
    ========================================================= */
 
 export async function compressImage(
   file: File,
-  maxWidth = 1000,
-  quality = 0.8
+  maxWidth = 700,
+  quality = 0.65
 ): Promise<string> {
 
   return new Promise(
@@ -546,9 +623,7 @@ export async function compressImage(
           let height =
             img.height;
 
-          if (
-            width > maxWidth
-          ) {
+          if (width > maxWidth) {
 
             const ratio =
               maxWidth / width;
@@ -603,6 +678,37 @@ export async function compressImage(
               quality
             );
 
+          /*
+           * Prevent accidentally saving an enormous
+           * Firestore document.
+           */
+          const estimatedBytes =
+            Math.ceil(
+              dataUrl.length * 0.75
+            );
+
+          console.log(
+            '📷 Compressed image size:',
+            Math.round(
+              estimatedBytes / 1024
+            ),
+            'KB'
+          );
+
+          if (
+            estimatedBytes >
+            850 * 1024
+          ) {
+
+            reject(
+              new Error(
+                'Image is still too large for Firestore. Please use a smaller image.'
+              )
+            );
+
+            return;
+          }
+
           resolve(dataUrl);
         };
 
@@ -635,13 +741,12 @@ export async function compressImage(
 
 /* =========================================================
    COMPATIBILITY EXPORT
-   App.tsx / OwnerBoard.tsx
    ========================================================= */
 
 export async function compressImageToDataUrl(
   file: File,
-  maxWidth = 1000,
-  quality = 0.8
+  maxWidth = 700,
+  quality = 0.65
 ): Promise<string> {
 
   return compressImage(
@@ -665,7 +770,6 @@ export async function signInWithGoogle() {
 
 /* =========================================================
    MASTER OWNER GOOGLE SIGN-IN
-   OwnerBoard.tsx requires this export.
    ========================================================= */
 
 export async function signInMasterOwnerWithGoogle() {
