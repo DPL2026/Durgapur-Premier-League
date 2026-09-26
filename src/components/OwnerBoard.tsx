@@ -111,11 +111,17 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerRole, setNewPlayerRole] = useState<PlayerRole>('Batter');
-  const [newPlayerAge, setNewPlayerAge] = useState<number>(24);
-  const [newPlayerBasePrice, setNewPlayerBasePrice] = useState<number>(1000);
+  const [newPlayerAge, setNewPlayerAge] = useState<number>(20);
+  const [newPlayerBasePrice, setNewPlayerBasePrice] = useState<number>(1500);
   const [newPlayerBatting, setNewPlayerBatting] = useState('Right-hand bat');
   const [newPlayerBowling, setNewPlayerBowling] = useState('Right-arm fast');
   const [newPlayerPhoto, setNewPlayerPhoto] = useState<string>('');
+  const [newPlayerMatches, setNewPlayerMatches] = useState<number>(25);
+  const [newPlayerRuns, setNewPlayerRuns] = useState<number>(650);
+  const [newPlayerWickets, setNewPlayerWickets] = useState<number>(14);
+  const [newPlayerStrikeRate, setNewPlayerStrikeRate] = useState<number>(142.5);
+  const [newPlayerHighestScore, setNewPlayerHighestScore] = useState<string>('78*');
+  const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
 
   // New Team Form State
   const [showAddTeam, setShowAddTeam] = useState(false);
@@ -147,17 +153,33 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
     }
   };
 
-  // Handle uploading custom photo for a player
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, isForNewPlayer = false) => {
+  // Handle uploading custom photo for a player (persisted to shared server /uploads/ for all website users)
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, isForNewPlayer = false, directPlayer?: Player) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsUploadingImage(true);
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const base64 = reader.result as string;
-        if (isForNewPlayer) {
-          setNewPlayerPhoto(base64);
+        const prefix = directPlayer
+          ? `player_${directPlayer.id}`
+          : isForNewPlayer
+          ? 'player_new'
+          : `player_${editingPlayer?.id || 'edit'}`;
+
+        const uploadRes = await dbApi.uploadOwnerImage(base64, prefix, 'Priyam01032008@');
+        const finalPhotoUrl = uploadRes.success && uploadRes.url ? uploadRes.url : base64;
+        setIsUploadingImage(false);
+
+        if (directPlayer) {
+          onUpdatePlayer(directPlayer.id, { ...directPlayer, photo: finalPhotoUrl });
+          showNotification(`Uploaded new picture for "${directPlayer.name}"! Visible to all website users.`);
+        } else if (isForNewPlayer) {
+          setNewPlayerPhoto(finalPhotoUrl);
+          showNotification('Player picture uploaded! Click "Create & Add Player" to publish to all users.');
         } else if (editingPlayer) {
-          setEditingPlayer({ ...editingPlayer, photo: base64 });
+          setEditingPlayer({ ...editingPlayer, photo: finalPhotoUrl });
+          showNotification('Player picture uploaded! Click "Save Player Details" to publish to all users.');
         }
       };
       reader.readAsDataURL(file);
@@ -168,14 +190,21 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
   const handleTeamLogoUpload = (e: React.ChangeEvent<HTMLInputElement>, isForNew = false) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsUploadingImage(true);
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const base64 = reader.result as string;
+        const prefix = isForNew ? 'team_new' : `team_${editingTeam?.id || 'edit'}`;
+        const uploadRes = await dbApi.uploadOwnerImage(base64, prefix, 'Priyam01032008@');
+        const finalLogoUrl = uploadRes.success && uploadRes.url ? uploadRes.url : base64;
+        setIsUploadingImage(false);
+
         if (isForNew) {
-          setNewTeamLogoUrl(base64);
+          setNewTeamLogoUrl(finalLogoUrl);
         } else if (editingTeam) {
-          setEditingTeam({ ...editingTeam, logoUrl: base64 });
+          setEditingTeam({ ...editingTeam, logoUrl: finalLogoUrl });
         }
+        showNotification('Team logo uploaded to shared server database!');
       };
       reader.readAsDataURL(file);
     }
@@ -184,16 +213,14 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
   const handleSaveEditedPlayer = () => {
     if (!editingPlayer) return;
     onUpdatePlayer(editingPlayer.id, editingPlayer);
-    dbApi.updatePlayer(editingPlayer.id, editingPlayer);
-    showNotification(`Player "${editingPlayer.name}" details and photo updated!`);
+    showNotification(`Player "${editingPlayer.name}" details and photo published to all website users!`);
     setEditingPlayer(null);
   };
 
   const handleSaveEditedTeam = () => {
     if (!editingTeam) return;
     onUpdateTeam(editingTeam.id, editingTeam);
-    dbApi.updateTeam(editingTeam.id, editingTeam);
-    showNotification(`Team "${editingTeam.name}" logo and details updated!`);
+    showNotification(`Team "${editingTeam.name}" logo and details published to all website users!`);
     setEditingTeam(null);
   };
 
@@ -211,11 +238,17 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
       battingStyle: newPlayerBatting,
       bowlingStyle: newPlayerBowling,
       photo: newPlayerPhoto.trim() || undefined,
-      stats: { matches: 25, runs: 650, strikeRate: 142.5, wickets: 14, highestScore: '78*' }
+      stats: {
+        matches: newPlayerMatches,
+        runs: newPlayerRuns,
+        strikeRate: newPlayerStrikeRate,
+        wickets: newPlayerWickets,
+        highestScore: newPlayerHighestScore || '50*'
+      }
     };
 
     onAddPlayer(newPly);
-    showNotification(`Player "${newPlayerName}" successfully added to the database!`);
+    showNotification(`Player "${newPlayerName}" and picture published to the shared website database!`);
     setNewPlayerName('');
     setNewPlayerPhoto('');
     setShowAddPlayer(false);
@@ -438,7 +471,28 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
             {/* TAB 1: PLAYER IMAGES & DETAILS */}
             {activeSubTab === 'players' && (
               <div className="flex-1 flex flex-col overflow-hidden pt-3 space-y-3">
-                
+                {/* Shared Database Status Banner */}
+                <div className="p-3 rounded-2xl bg-emerald-950/60 border border-emerald-400/40 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+                  <div className="flex items-center gap-2 text-emerald-200">
+                    <Database className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>
+                      <strong>Shared Website Database Active:</strong> Only you (Master Owner) can upload or edit player pictures and details. Every website user automatically sees your uploaded pictures live ({players.filter((p) => Boolean(p.photo)).length}/{players.length} players have uploaded photos).
+                    </span>
+                  </div>
+                  {onSyncAll && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await onSyncAll();
+                        showNotification('All player pictures and details synced to every website user!');
+                      }}
+                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-score font-bold text-[11px] uppercase tracking-wider shadow cursor-pointer"
+                    >
+                      Sync to All Users Now
+                    </button>
+                  )}
+                </div>
+
                 {/* Search & Actions Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
                   <div className="flex flex-wrap items-center gap-2 flex-1 max-w-xl">
@@ -600,6 +654,19 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
                                     Stage Lot
                                   </button>
                                 )}
+                                <label
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/60 border border-emerald-400/40 text-emerald-200 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                                  title="Upload Photo Directly for This Player"
+                                >
+                                  <Upload className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Upload Photo</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => handlePhotoUpload(e, false, p)}
+                                    className="hidden"
+                                  />
+                                </label>
                                 <button
                                   onClick={() => setEditingPlayer(p)}
                                   className="p-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/60 border border-blue-400/40 text-blue-200 cursor-pointer"
@@ -1594,6 +1661,58 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
                       type="text"
                       value={newPlayerBowling}
                       onChange={(e) => setNewPlayerBowling(e.target.value)}
+                      className="w-full p-2.5 rounded-xl bg-[#071329] border border-blue-500/30 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-blue-200 block mb-1">Matches Played</label>
+                    <input
+                      type="number"
+                      value={newPlayerMatches}
+                      onChange={(e) => setNewPlayerMatches(parseInt(e.target.value, 10) || 0)}
+                      className="w-full p-2.5 rounded-xl bg-[#071329] border border-blue-500/30 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-blue-200 block mb-1">Total Runs</label>
+                    <input
+                      type="number"
+                      value={newPlayerRuns}
+                      onChange={(e) => setNewPlayerRuns(parseInt(e.target.value, 10) || 0)}
+                      className="w-full p-2.5 rounded-xl bg-[#071329] border border-blue-500/30 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-blue-200 block mb-1">Total Wickets</label>
+                    <input
+                      type="number"
+                      value={newPlayerWickets}
+                      onChange={(e) => setNewPlayerWickets(parseInt(e.target.value, 10) || 0)}
+                      className="w-full p-2.5 rounded-xl bg-[#071329] border border-blue-500/30 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-blue-200 block mb-1">Strike Rate</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={newPlayerStrikeRate}
+                      onChange={(e) => setNewPlayerStrikeRate(parseFloat(e.target.value) || 0)}
+                      className="w-full p-2.5 rounded-xl bg-[#071329] border border-blue-500/30 text-white"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="text-blue-200 block mb-1">Highest Score</label>
+                    <input
+                      type="text"
+                      value={newPlayerHighestScore}
+                      onChange={(e) => setNewPlayerHighestScore(e.target.value)}
+                      placeholder="e.g. 98*"
                       className="w-full p-2.5 rounded-xl bg-[#071329] border border-blue-500/30 text-white"
                     />
                   </div>
