@@ -31,6 +31,25 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # Check that Firebase secrets are available
+      - name: Check Firebase Secrets
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: |
+          test -n "$VITE_FIREBASE_API_KEY" || (echo "❌ API KEY missing" && exit 1)
+          test -n "$VITE_FIREBASE_AUTH_DOMAIN" || (echo "❌ AUTH DOMAIN missing" && exit 1)
+          test -n "$VITE_FIREBASE_PROJECT_ID" || (echo "❌ PROJECT ID missing" && exit 1)
+          test -n "$VITE_FIREBASE_STORAGE_BUCKET" || (echo "❌ STORAGE BUCKET missing" && exit 1)
+          test -n "$VITE_FIREBASE_MESSAGING_SENDER_ID" || (echo "❌ SENDER ID missing" && exit 1)
+          test -n "$VITE_FIREBASE_APP_ID" || (echo "❌ APP ID missing" && exit 1)
+
+          echo "✅ All Firebase secrets are present"
+
       - name: Build Vite app
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
