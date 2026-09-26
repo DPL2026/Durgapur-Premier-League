@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -8,17 +9,132 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, 'data', 'db.json');
+const DATA_DIR = path.join(__dirname, 'data');
+const DB_FILE = path.join(DATA_DIR, 'db.json');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 
-// Ensure data directory exists
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Ensure data and uploads directories exist
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 // Increase payload limit for base64 image uploads (team logos & player photos)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Serve uploaded images statically to all website users
+app.use(
+  '/uploads',
+  express.static(UPLOADS_DIR, {
+    maxAge: '7d',
+    etag: true
+  })
+);
+
+// Extract base64 data:image/... into a persistent file in /data/uploads/ and return /uploads/<filename>
+function persistBase64Image(dataUrlOrPath: string | undefined, prefix: string): string | undefined {
+  if (!dataUrlOrPath || typeof dataUrlOrPath !== 'string') return undefined;
+  const trimmed = dataUrlOrPath.trim();
+  if (!trimmed) return undefined;
+
+  // Keep SVG data URLs or external/static URLs as-is
+  if (!trimmed.startsWith('data:image/') || trimmed.startsWith('data:image/svg+xml')) {
+    return trimmed;
+  }
+
+  const match = trimmed.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,([\s\S]+)$/);
+  if (!match) return trimmed;
+
+  const rawExt = match[1].toLowerCase();
+  const base64Data = match[2].replace(/\s/g, '');
+  const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+
+  try {
+    const hash = crypto.createHash('md5').update(base64Data).digest('hex').slice(0, 12);
+    const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `${safePrefix}_${hash}.${ext}`;
+    const filePath = path.join(UPLOADS_DIR, filename);
+
+    if (!fs.existsSync(filePath)) {
+      const buffer = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync(filePath, buffer);
+    }
+    return `/uploads/${filename}`;
+  } catch (err) {
+    console.error('Failed to persist base64 image:', err);
+    return trimmed;
+  }
+}
+
+// Normalize database: extract base64 images to /uploads/ and ensure team rosters match sold players
+function normalizeDatabase(db: any): any {
+  if (!db || typeof db !== 'object') return db;
+
+  if (Array.isArray(db.players)) {
+    db.players = db.players.map((p: any, idx: number) => {
+      if (!p) return p;
+      const pid = p.id || `ply_${idx}`;
+      const normalizedPhoto = persistBase64Image(p.photo, `player_${pid}`);
+      return {
+        ...p,
+        id: pid,
+        photo: normalizedPhoto
+      };
+    });
+  }
+
+  if (Array.isArray(db.teams)) {
+    const soldPlayersByTeam: Record<string, string[]> = {};
+    const soldOverseasByTeam: Record<string, number> = {};
+
+    if (Array.isArray(db.players)) {
+      for (const p of db.players) {
+        if (p && p.status === 'sold' && p.soldTo) {
+          if (!soldPlayersByTeam[p.soldTo]) soldPlayersByTeam[p.soldTo] = [];
+          if (!soldPlayersByTeam[p.soldTo].includes(p.id)) {
+            soldPlayersByTeam[p.soldTo].push(p.id);
+            if (p.isOverseas) {
+              soldOverseasByTeam[p.soldTo] = (soldOverseasByTeam[p.soldTo] || 0) + 1;
+            }
+          }
+        }
+      }
+    }
+
+    db.teams = db.teams.map((t: any, idx: number) => {
+      if (!t) return t;
+      const tid = t.id || `team_${idx}`;
+      const normalizedLogo = persistBase64Image(t.logoUrl, `team_${tid}`);
+      const validSoldPlayers = soldPlayersByTeam[tid] || [];
+      return {
+        ...t,
+        id: tid,
+        logoUrl: normalizedLogo,
+        players: validSoldPlayers,
+        overseasPlayers: soldOverseasByTeam[tid] || 0
+      };
+    });
+  }
+
+  if (Array.isArray(db.history)) {
+    db.history = db.history.map((h: any) => {
+      if (!h || !h.player) return h;
+      const pid = h.player.id || 'hist';
+      return {
+        ...h,
+        player: {
+          ...h.player,
+          photo: persistBase64Image(h.player.photo, `player_${pid}`)
+        }
+      };
+    });
+  }
+
+  return db;
+}
 
 // Helper to read DB
 function readDatabase() {
@@ -36,12 +152,20 @@ function readDatabase() {
 // Helper to save DB
 function saveDatabase(data: any) {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    return true;
+    const normalized = normalizeDatabase(data);
+    normalized.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(DB_FILE, JSON.stringify(normalized, null, 2), 'utf-8');
+    return normalized;
   } catch (err) {
     console.error('Error writing database file:', err);
-    return false;
+    return null;
   }
+}
+
+// Normalize existing database on startup so any large base64 images are immediately moved to /uploads/
+const initialDbOnBoot = readDatabase();
+if (initialDbOnBoot) {
+  saveDatabase(initialDbOnBoot);
 }
 
 // Secret Hidden Codes for Franchise Team Owners (Backend-Verified)
@@ -79,16 +203,32 @@ function findTeamByCode(code: string): string | null {
   return null;
 }
 
+function isMasterOwner(authTokenOrCode?: string): boolean {
+  const clean = (authTokenOrCode || '').trim();
+  return clean === MASTER_OWNER_PASS || clean === 'MASTER_OWNER_AUTH';
+}
+
 function isAuthorizedOwner(authTokenOrCode?: string): boolean {
   const clean = (authTokenOrCode || '').trim();
   if (!clean) return false;
-  if (clean === MASTER_OWNER_PASS || clean === 'MASTER_OWNER_AUTH') return true;
+  if (isMasterOwner(clean)) return true;
   return Boolean(findTeamByCode(clean));
+}
+
+function extractOwnerAuth(req: express.Request): string {
+  const headerAuth = req.headers['x-owner-auth'];
+  if (typeof headerAuth === 'string' && headerAuth.trim()) {
+    return headerAuth.trim();
+  }
+  if (req.body && typeof req.body.ownerAuth === 'string') {
+    return req.body.ownerAuth.trim();
+  }
+  return '';
 }
 
 // ---------------- REST API ENDPOINTS ---------------- //
 
-// POST verify franchise owner hidden code login
+// POST verify franchise owner hidden code login or master owner login
 app.post('/api/owner/verify-code', (req, res) => {
   const { code, teamId, email } = req.body || {};
   const cleanCode = (code || '').trim();
@@ -154,6 +294,28 @@ app.post('/api/owner/verify-code', (req, res) => {
   });
 });
 
+// POST Master Owner image upload endpoint -> saves to /data/uploads/ and returns public /uploads/... URL
+app.post('/api/owner/upload-image', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can upload player pictures and logos.'
+    });
+  }
+
+  const { imageData, prefix } = req.body || {};
+  if (!imageData || typeof imageData !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing imageData' });
+  }
+
+  const url = persistBase64Image(imageData, prefix || 'upload');
+  return res.json({
+    success: true,
+    url
+  });
+});
+
 // POST authenticated owner bid placement
 app.post('/api/owner/bid', (req, res) => {
   const { teamId, code, playerId, amount } = req.body || {};
@@ -175,7 +337,8 @@ app.post('/api/owner/bid', (req, res) => {
 
 // POST backend owner-only refund & re-auction
 app.post('/api/owner/refund', (req, res) => {
-  const { playerId, ownerAuth } = req.body || {};
+  const { playerId } = req.body || {};
+  const ownerAuth = extractOwnerAuth(req);
   if (!isAuthorizedOwner(ownerAuth)) {
     return res.status(403).json({
       success: false,
@@ -183,7 +346,7 @@ app.post('/api/owner/refund', (req, res) => {
     });
   }
 
-  const db = readDatabase();
+  let db = readDatabase();
   if (db && Array.isArray(db.players) && Array.isArray(db.teams)) {
     const targetPlayer = db.players.find((p: any) => p.id === playerId);
     if (targetPlayer) {
@@ -216,7 +379,7 @@ app.post('/api/owner/refund', (req, res) => {
         db.history = db.history.filter((h: any) => h.player?.id !== playerId);
       }
 
-      saveDatabase(db);
+      db = saveDatabase(db);
     }
   }
 
@@ -229,7 +392,8 @@ app.post('/api/owner/refund', (req, res) => {
 
 // POST backend owner-only re-auction for unsold/sold player
 app.post('/api/owner/reauction', (req, res) => {
-  const { playerId, ownerAuth } = req.body || {};
+  const { playerId } = req.body || {};
+  const ownerAuth = extractOwnerAuth(req);
   if (!isAuthorizedOwner(ownerAuth)) {
     return res.status(403).json({
       success: false,
@@ -237,7 +401,7 @@ app.post('/api/owner/reauction', (req, res) => {
     });
   }
 
-  const db = readDatabase();
+  let db = readDatabase();
   if (db && Array.isArray(db.players)) {
     db.players = db.players.map((p: any) =>
       p.id === playerId
@@ -247,7 +411,7 @@ app.post('/api/owner/reauction', (req, res) => {
     if (Array.isArray(db.history)) {
       db.history = db.history.filter((h: any) => h.player?.id !== playerId);
     }
-    saveDatabase(db);
+    db = saveDatabase(db);
   }
 
   return res.json({
@@ -257,8 +421,9 @@ app.post('/api/owner/reauction', (req, res) => {
   });
 });
 
-// GET database snapshot
+// GET database snapshot (Public: Every website user can view the Owner's uploaded pictures and player details)
 app.get('/api/database', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = readDatabase();
   res.json({
     success: true,
@@ -267,45 +432,131 @@ app.get('/api/database', (_req, res) => {
   });
 });
 
-// POST sync whole database snapshot from Owner Board or Client
+// POST sync database snapshot (Restricted to Authenticated Owners; non-Master Owners can only sync auction status/bids, never overwrite uploaded photos/details)
 app.post('/api/database/sync', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isAuthorizedOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only authenticated owners can sync state to the database.'
+    });
+  }
+
   const payload = req.body;
-  if (!payload || !payload.teams || !payload.players) {
+  if (!payload || !Array.isArray(payload.teams) || !Array.isArray(payload.players)) {
     return res.status(400).json({ success: false, error: 'Invalid database payload' });
   }
 
-  const success = saveDatabase(payload);
+  const existingDb = readDatabase();
+  const masterMode = isMasterOwner(ownerAuth);
+
+  let mergedPlayers = payload.players;
+  let mergedTeams = payload.teams;
+
+  if (existingDb && Array.isArray(existingDb.players)) {
+    if (!masterMode) {
+      // Franchise Owner syncing live auction state: keep Master Owner's player list, photos, and details intact; only update auction status/soldPrice/soldTo
+      const incomingMap = new Map(payload.players.map((p: any) => [p.id, p]));
+      mergedPlayers = existingDb.players.map((existingPlayer: any) => {
+        const inc: any = incomingMap.get(existingPlayer.id);
+        if (!inc) return existingPlayer;
+        return {
+          ...existingPlayer,
+          status: inc.status ?? existingPlayer.status,
+          soldPrice: inc.soldPrice,
+          soldTo: inc.soldTo
+        };
+      });
+    } else {
+      // Master Owner syncing: preserve existing uploaded photo if incoming payload didn't explicitly replace it
+      const existingMap = new Map(existingDb.players.map((p: any) => [p.id, p]));
+      mergedPlayers = payload.players.map((incPlayer: any) => {
+        const prev: any = existingMap.get(incPlayer.id);
+        return {
+          ...incPlayer,
+          photo: incPlayer.photo || prev?.photo
+        };
+      });
+    }
+  }
+
+  if (existingDb && Array.isArray(existingDb.teams) && !masterMode) {
+    const incomingTeamMap = new Map(payload.teams.map((t: any) => [t.id, t]));
+    mergedTeams = existingDb.teams.map((existingTeam: any) => {
+      const inc: any = incomingTeamMap.get(existingTeam.id);
+      if (!inc) return existingTeam;
+      return {
+        ...existingTeam,
+        purse: inc.purse ?? existingTeam.purse,
+        players: inc.players ?? existingTeam.players,
+        overseasPlayers: inc.overseasPlayers ?? existingTeam.overseasPlayers
+      };
+    });
+  }
+
+  const saved = saveDatabase({
+    teams: mergedTeams,
+    players: mergedPlayers,
+    history: payload.history ?? existingDb?.history ?? [],
+    settings: payload.settings ?? existingDb?.settings
+  });
+
   res.json({
-    success,
-    message: success ? 'Database successfully saved to backend storage' : 'Failed to write DB',
+    success: Boolean(saved),
+    data: saved,
+    message: saved ? 'Database successfully saved to backend storage' : 'Failed to write DB',
     timestamp: new Date().toISOString()
   });
 });
 
-// POST create a new team
+// POST create a new team (Master Owner Only)
 app.post('/api/teams', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can add new franchises.'
+    });
+  }
+
   const newTeam = req.body;
   const db = readDatabase() || { teams: [], players: [] };
   if (!db.teams) db.teams = [];
   db.teams.push(newTeam);
-  saveDatabase(db);
-  res.json({ success: true, team: newTeam });
+  const saved = saveDatabase(db);
+  res.json({ success: true, team: saved?.teams?.find((t: any) => t.id === newTeam.id) || newTeam, data: saved });
 });
 
-// DELETE team
+// DELETE team (Master Owner Only)
 app.delete('/api/teams/:id', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can delete franchises.'
+    });
+  }
+
   const teamId = req.params.id;
   const db = readDatabase() || {};
   if (Array.isArray(db.teams)) {
     db.teams = db.teams.filter((t: any) => t.id !== teamId);
-    saveDatabase(db);
-    return res.json({ success: true, message: 'Team deleted' });
+    const saved = saveDatabase(db);
+    return res.json({ success: true, message: 'Team deleted', data: saved });
   }
   res.status(404).json({ success: false, error: 'Teams collection not found' });
 });
 
-// POST update specific team
+// POST update specific team (Master Owner Only)
 app.post('/api/teams/:id', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can update franchise details and logos.'
+    });
+  }
+
   const teamId = req.params.id;
   const updates = req.body;
   const db = readDatabase() || {};
@@ -314,60 +565,95 @@ app.post('/api/teams/:id', (req, res) => {
     const idx = db.teams.findIndex((t: any) => t.id === teamId);
     if (idx !== -1) {
       db.teams[idx] = { ...db.teams[idx], ...updates };
-      saveDatabase(db);
-      return res.json({ success: true, team: db.teams[idx] });
+      const saved = saveDatabase(db);
+      return res.json({ success: true, team: saved?.teams?.[idx] || db.teams[idx], data: saved });
     }
   }
 
   res.status(404).json({ success: false, error: 'Team not found' });
 });
 
-// POST create or update player
+// POST create a new player with uploaded photo & details (Master Owner Only)
 app.post('/api/players', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can upload new player details and images.'
+    });
+  }
+
   const newPlayer = req.body;
   const db = readDatabase() || { teams: [], players: [] };
 
   if (!db.players) db.players = [];
-  db.players.push(newPlayer);
-  saveDatabase(db);
+  // Put newly uploaded player at top of registry
+  db.players = [newPlayer, ...db.players.filter((p: any) => p.id !== newPlayer.id)];
+  const saved = saveDatabase(db);
+  const savedPlayer = saved?.players?.find((p: any) => p.id === newPlayer.id) || newPlayer;
 
-  res.json({ success: true, player: newPlayer });
+  res.json({ success: true, player: savedPlayer, data: saved });
 });
 
-// PUT update player
+// PUT update player details & uploaded photo (Master Owner Only)
 app.put('/api/players/:id', (req, res) => {
-  const playerId = req.params.id;
-  const updates = req.body;
-  const db = readDatabase() || {};
-
-  if (Array.isArray(db.players)) {
-    const idx = db.players.findIndex((p: any) => p.id === playerId);
-    if (idx !== -1) {
-      db.players[idx] = { ...db.players[idx], ...updates };
-      saveDatabase(db);
-      return res.json({ success: true, player: db.players[idx] });
-    }
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can update player details and images.'
+    });
   }
 
-  res.status(404).json({ success: false, error: 'Player not found' });
+  const playerId = req.params.id;
+  const updates = req.body;
+  const db = readDatabase() || { teams: [], players: [] };
+
+  if (!Array.isArray(db.players)) db.players = [];
+  const idx = db.players.findIndex((p: any) => p.id === playerId);
+  if (idx !== -1) {
+    db.players[idx] = { ...db.players[idx], ...updates };
+  } else {
+    db.players.push({ ...updates, id: playerId });
+  }
+
+  const saved = saveDatabase(db);
+  const savedPlayer = saved?.players?.find((p: any) => p.id === playerId);
+  return res.json({ success: true, player: savedPlayer, data: saved });
 });
 
-// DELETE player
+// DELETE player (Master Owner Only)
 app.delete('/api/players/:id', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can delete players.'
+    });
+  }
+
   const playerId = req.params.id;
   const db = readDatabase() || {};
 
   if (Array.isArray(db.players)) {
     db.players = db.players.filter((p: any) => p.id !== playerId);
-    saveDatabase(db);
-    return res.json({ success: true, message: 'Player deleted' });
+    const saved = saveDatabase(db);
+    return res.json({ success: true, message: 'Player deleted', data: saved });
   }
 
   res.status(404).json({ success: false, error: 'Players collection not found' });
 });
 
-// POST reset database
-app.post('/api/database/reset', (_req, res) => {
+// POST reset database (Master Owner Only)
+app.post('/api/database/reset', (req, res) => {
+  const ownerAuth = extractOwnerAuth(req);
+  if (!isMasterOwner(ownerAuth)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unauthorized: Only the Master Owner can reset the database.'
+    });
+  }
+
   try {
     if (fs.existsSync(DB_FILE)) {
       fs.unlinkSync(DB_FILE);
