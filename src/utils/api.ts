@@ -273,7 +273,9 @@ export const dbApi = {
 
     if (
       cleanCode === 'Priyam01032008@' &&
-      (!email || email.trim().toLowerCase() === 'priyam1.3.2008@gmail.com')
+      (!email ||
+        email.trim().toLowerCase() === 'priyam1.3.2008@gmail.com' ||
+        email.trim().toLowerCase() === 'roypriyam950@gmail.com')
     ) {
       return {
         success: true,
