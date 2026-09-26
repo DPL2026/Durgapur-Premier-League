@@ -1,0 +1,6 @@
+{
+  "name": "DPL Cricket Auction 2026",
+  "description": "Premium cricket player auction simulator featuring live AI bidding, realistic purse management, broadcast scoreboard, and franchise squad building.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
