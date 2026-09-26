@@ -1,4 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+
 import {
   getAuth,
   GoogleAuthProvider,
@@ -13,7 +14,6 @@ import {
   getDocs,
   getDoc,
   setDoc,
-  updateDoc,
   deleteDoc,
   onSnapshot,
   type DocumentData,
@@ -34,6 +34,34 @@ const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
+
+/* =========================================================
+   FIREBASE CONFIG VALIDATION
+   ========================================================= */
+
+if (!firebaseConfig.apiKey) {
+  throw new Error("Missing Firebase API key");
+}
+
+if (!firebaseConfig.authDomain) {
+  throw new Error("Missing Firebase Auth Domain");
+}
+
+if (!firebaseConfig.projectId) {
+  throw new Error("Missing Firebase Project ID");
+}
+
+if (!firebaseConfig.storageBucket) {
+  throw new Error("Missing Firebase Storage Bucket");
+}
+
+if (!firebaseConfig.messagingSenderId) {
+  throw new Error("Missing Firebase Messaging Sender ID");
+}
+
+if (!firebaseConfig.appId) {
+  throw new Error("Missing Firebase App ID");
+}
 
 /* =========================================================
    FIREBASE INITIALIZATION
@@ -147,7 +175,9 @@ const TEAMS_COLLECTION = "teams";
    HELPERS
    ========================================================= */
 
-function cleanFirestoreData<T extends Record<string, any>>(data: T): T {
+function cleanFirestoreData<T extends Record<string, any>>(
+  data: T
+): T {
   const cleaned: Record<string, any> = {};
 
   Object.entries(data).forEach(([key, value]) => {
@@ -175,7 +205,7 @@ function normalizePlayer(
 
 export function firestoreDocToTeam(
   docData: DocumentData,
-  players: Player[] = []
+  _players: Player[] = []
 ): Team {
   const teamId = String(docData.id || "");
 
@@ -187,21 +217,24 @@ export function firestoreDocToTeam(
     ? docData.retainedPlayers
     : [];
 
-  /*
-   * Keep player IDs exactly as stored in Firestore.
-   * This is important because App.tsx uses team.players
-   * as player IDs.
-   */
-
   const team: Team = {
     id: teamId,
-    name: docData.name || "",
-    shortCode: docData.shortCode || "",
-    primaryColor: docData.primaryColor || "#000000",
-    secondaryColor: docData.secondaryColor || "#FFFFFF",
-    motto: docData.motto || "",
 
-    logoUrl: docData.logoUrl || "",
+    name: docData.name || "",
+
+    shortCode: docData.shortCode || "",
+
+    primaryColor:
+      docData.primaryColor || "#000000",
+
+    secondaryColor:
+      docData.secondaryColor || "#FFFFFF",
+
+    motto:
+      docData.motto || "",
+
+    logoUrl:
+      docData.logoUrl || "",
 
     purse:
       typeof docData.purse === "number"
@@ -300,58 +333,75 @@ export async function fetchOrSeedFirestore(
     collection(db, TEAMS_COLLECTION)
   );
 
-  /* ---------------------------------------------
-     Seed players only if collection is empty
-     --------------------------------------------- */
+  /* ---------------------------------------------------------
+     SEED PLAYERS ONLY IF EMPTY
+     --------------------------------------------------------- */
 
-  if (playersSnapshot.empty && initialPlayers.length > 0) {
-    const playerWrites = initialPlayers.map(async (player) => {
-      const playerRef = doc(
-        db,
-        PLAYERS_COLLECTION,
-        player.id
-      );
+  if (
+    playersSnapshot.empty &&
+    initialPlayers.length > 0
+  ) {
+    const playerWrites = initialPlayers.map(
+      async (player) => {
+        const playerRef = doc(
+          db,
+          PLAYERS_COLLECTION,
+          player.id
+        );
 
-      await setDoc(
-        playerRef,
-        cleanFirestoreData({
-          ...player,
-          id: player.id,
-        }),
-        { merge: true }
-      );
-    });
+        await setDoc(
+          playerRef,
+          cleanFirestoreData({
+            ...player,
+            id: player.id,
+          }),
+          {
+            merge: true,
+          }
+        );
+      }
+    );
 
     await Promise.all(playerWrites);
   }
 
-  /* ---------------------------------------------
-     Seed teams only if collection is empty
-     --------------------------------------------- */
+  /* ---------------------------------------------------------
+     SEED TEAMS ONLY IF EMPTY
+     --------------------------------------------------------- */
 
-  if (teamsSnapshot.empty && initialTeams.length > 0) {
-    const teamWrites = initialTeams.map(async (team) => {
-      const teamRef = doc(
-        db,
-        TEAMS_COLLECTION,
-        team.id
-      );
+  if (
+    teamsSnapshot.empty &&
+    initialTeams.length > 0
+  ) {
+    const teamWrites = initialTeams.map(
+      async (team) => {
+        const teamRef = doc(
+          db,
+          TEAMS_COLLECTION,
+          team.id
+        );
 
-      await setDoc(
-        teamRef,
-        cleanFirestoreData({
-          ...team,
-          id: team.id,
-        }),
-        { merge: true }
-      );
-    });
+        await setDoc(
+          teamRef,
+          cleanFirestoreData({
+            ...team,
+            id: team.id,
+          }),
+          {
+            merge: true,
+          }
+        );
+      }
+    );
 
     await Promise.all(teamWrites);
   }
 
-  const players = await fetchPlayersFromFirestore();
-  const teams = await fetchTeamsFromFirestore();
+  const players =
+    await fetchPlayersFromFirestore();
+
+  const teams =
+    await fetchTeamsFromFirestore();
 
   return {
     players:
@@ -380,13 +430,19 @@ export function subscribeToPublicPlayers(
 
   return onSnapshot(
     playersRef,
+
     (snapshot) => {
-      const players = snapshot.docs.map((item) =>
-        normalizePlayer(item.data(), item.id)
+      const players = snapshot.docs.map(
+        (item) =>
+          normalizePlayer(
+            item.data(),
+            item.id
+          )
       );
 
       callback(players);
     },
+
     (error) => {
       console.error(
         "Firestore players subscription error:",
@@ -410,14 +466,18 @@ export function subscribeToPublicTeams(
 
   return onSnapshot(
     teamsRef,
+
     (snapshot) => {
-      const teams = snapshot.docs.map((item) => ({
-        ...item.data(),
-        id: item.id,
-      }));
+      const teams = snapshot.docs.map(
+        (item) => ({
+          ...item.data(),
+          id: item.id,
+        })
+      );
 
       callback(teams);
     },
+
     (error) => {
       console.error(
         "Firestore teams subscription error:",
@@ -436,7 +496,9 @@ export async function savePlayerToFirestore(
   _authKey?: string
 ): Promise<Player> {
   if (!player.id) {
-    throw new Error("Player ID is required");
+    throw new Error(
+      "Player ID is required"
+    );
   }
 
   const playerRef = doc(
@@ -450,11 +512,16 @@ export async function savePlayerToFirestore(
     id: player.id,
   });
 
-  await setDoc(playerRef, data, {
-    merge: true,
-  });
+  await setDoc(
+    playerRef,
+    data,
+    {
+      merge: true,
+    }
+  );
 
-  const saved = await getDoc(playerRef);
+  const saved =
+    await getDoc(playerRef);
 
   if (!saved.exists()) {
     throw new Error(
@@ -477,7 +544,9 @@ export async function updatePlayerAuctionInFirestore(
   _authKey?: string
 ): Promise<void> {
   if (!player.id) {
-    throw new Error("Player ID is required");
+    throw new Error(
+      "Player ID is required"
+    );
   }
 
   const playerRef = doc(
@@ -486,19 +555,16 @@ export async function updatePlayerAuctionInFirestore(
     player.id
   );
 
-  /*
-   * Update only auction-related values.
-   * Other player information remains untouched.
-   */
-
   await setDoc(
     playerRef,
+
     cleanFirestoreData({
       status: player.status,
       soldPrice: player.soldPrice,
       soldTo: player.soldTo,
       id: player.id,
     }),
+
     {
       merge: true,
     }
@@ -513,16 +579,18 @@ export async function deletePlayerFromFirestore(
   playerId: string
 ): Promise<void> {
   if (!playerId) {
-    throw new Error("Player ID is required");
+    throw new Error(
+      "Player ID is required"
+    );
   }
 
-  const playerRef = doc(
-    db,
-    PLAYERS_COLLECTION,
-    playerId
+  await deleteDoc(
+    doc(
+      db,
+      PLAYERS_COLLECTION,
+      playerId
+    )
   );
-
-  await deleteDoc(playerRef);
 }
 
 /* =========================================================
@@ -534,7 +602,9 @@ export async function saveTeamToFirestore(
   _authKey?: string
 ): Promise<Team> {
   if (!team.id) {
-    throw new Error("Team ID is required");
+    throw new Error(
+      "Team ID is required"
+    );
   }
 
   const teamRef = doc(
@@ -548,11 +618,16 @@ export async function saveTeamToFirestore(
     id: team.id,
   });
 
-  await setDoc(teamRef, data, {
-    merge: true,
-  });
+  await setDoc(
+    teamRef,
+    data,
+    {
+      merge: true,
+    }
+  );
 
-  const saved = await getDoc(teamRef);
+  const saved =
+    await getDoc(teamRef);
 
   if (!saved.exists()) {
     throw new Error(
@@ -577,21 +652,24 @@ export async function updateTeamPurseInFirestore(
   _authKey?: string
 ): Promise<void> {
   if (!teamId) {
-    throw new Error("Team ID is required");
+    throw new Error(
+      "Team ID is required"
+    );
   }
 
-  const teamRef = doc(
-    db,
-    TEAMS_COLLECTION,
-    teamId
-  );
-
   await setDoc(
-    teamRef,
+    doc(
+      db,
+      TEAMS_COLLECTION,
+      teamId
+    ),
+
     {
       purse: newPurse,
-      overseasPlayers: newOverseasPlayers,
+      overseasPlayers:
+        newOverseasPlayers,
     },
+
     {
       merge: true,
     }
@@ -606,16 +684,18 @@ export async function deleteTeamFromFirestore(
   teamId: string
 ): Promise<void> {
   if (!teamId) {
-    throw new Error("Team ID is required");
+    throw new Error(
+      "Team ID is required"
+    );
   }
 
-  const teamRef = doc(
-    db,
-    TEAMS_COLLECTION,
-    teamId
+  await deleteDoc(
+    doc(
+      db,
+      TEAMS_COLLECTION,
+      teamId
+    )
   );
-
-  await deleteDoc(teamRef);
 }
 
 /* =========================================================
