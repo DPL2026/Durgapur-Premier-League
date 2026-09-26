@@ -12,6 +12,19 @@ import { INITIAL_PLAYERS, getInitializedTeams, INITIAL_SETTINGS } from './data/i
 import { evaluateAiBids, getNextBidIncrement } from './utils/aiBidding';
 import { soundManager } from './utils/soundEffects';
 import { dbApi } from './utils/api';
+import {
+  fetchOrSeedFirestore,
+  subscribeToPublicPlayers,
+  subscribeToPublicTeams,
+  firestoreDocToTeam,
+  savePlayerToFirestore,
+  updatePlayerAuctionInFirestore,
+  deletePlayerFromFirestore,
+  saveTeamToFirestore,
+  updateTeamPurseInFirestore,
+  deleteTeamFromFirestore,
+  compressImageToDataUrl
+} from './firebase';
 
 import { Header } from './components/Header';
 import { LandingPage } from './components/LandingPage';
@@ -131,48 +144,144 @@ export default function App() {
 
   const hasLoadedFromBackend = useRef<boolean>(false);
   const lastLocalMutationTime = useRef<number>(0);
+  const rawTeamDocsRef = useRef<Record<string, any>[]>([]);
 
-  // Load from shared backend database on initialization AND poll for live Owner uploads so every website user sees uploaded pictures and details
-  const fetchSharedDatabase = useCallback(async (isInitial = false) => {
-    try {
-      // Avoid overwriting an owner's active local mutation within 2 seconds
-      if (!isInitial && Date.now() - lastLocalMutationTime.current < 2000) {
-        return;
+  // 1. Real-time Firebase Firestore + Backend Database synchronization for EVERY website user
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initSharedCloudDatabase() {
+      // Check if localStorage has any owner-uploaded raster photos (png/jpeg/webp) that should be rescued into Firestore
+      let localPlayersToRescue: Player[] = [];
+      try {
+        const rawLocal = localStorage.getItem(STORAGE_KEY_PLAYERS);
+        if (rawLocal) {
+          const parsedLocal = JSON.parse(rawLocal);
+          if (Array.isArray(parsedLocal)) {
+            localPlayersToRescue = parsedLocal.filter(
+              (lp: any) =>
+                lp &&
+                typeof lp.photo === 'string' &&
+                (lp.photo.startsWith('data:image/png') ||
+                  lp.photo.startsWith('data:image/jpeg') ||
+                  lp.photo.startsWith('data:image/jpg') ||
+                  lp.photo.startsWith('data:image/webp'))
+            );
+          }
+        }
+      } catch {
+        // Ignore localStorage parse errors
       }
-      const res = await dbApi.getDatabase();
-      if (res.success && res.data && Array.isArray(res.data.teams) && Array.isArray(res.data.players)) {
-        setTeams(res.data.teams);
-        setPlayers(res.data.players);
-        if (res.data.history) setHistory(res.data.history);
-        if (res.data.settings) setSettings(res.data.settings);
+
+      // First load from backend API (fast local fallback)
+      try {
+        const apiRes = await dbApi.getDatabase();
+        if (
+          isMounted &&
+          apiRes.success &&
+          apiRes.data &&
+          Array.isArray(apiRes.data.players) &&
+          Array.isArray(apiRes.data.teams)
+        ) {
+          setPlayers(apiRes.data.players);
+          setTeams(apiRes.data.teams);
+          if (apiRes.data.history) setHistory(apiRes.data.history);
+          if (apiRes.data.settings) setSettings(apiRes.data.settings);
+        }
+      } catch {
+        // Ignore backend error
       }
-      if (isInitial) {
-        hasLoadedFromBackend.current = true;
+
+      // Load or seed from Firebase Firestore (cross-instance, cross-device cloud source of truth)
+      const cloudData = await fetchOrSeedFirestore(INITIAL_PLAYERS, getInitializedTeams());
+      if (isMounted && cloudData) {
+        let mergedPlayers = cloudData.players;
+
+        // Rescue any owner-uploaded raster photos from localStorage that weren't in Firestore yet
+        if (localPlayersToRescue.length > 0) {
+          for (const localPly of localPlayersToRescue) {
+            const matchIdx = mergedPlayers.findIndex(
+              (cp) =>
+                cp.id === localPly.id ||
+                cp.name.trim().toLowerCase() === localPly.name.trim().toLowerCase()
+            );
+            if (matchIdx !== -1 && !mergedPlayers[matchIdx].photo && localPly.photo) {
+              try {
+                const compressed = await compressImageToDataUrl(localPly.photo);
+                const updatedPly: Player = { ...mergedPlayers[matchIdx], photo: compressed };
+                mergedPlayers[matchIdx] = updatedPly;
+                await savePlayerToFirestore(updatedPly, 'Priyam01032008@');
+                await dbApi.updatePlayer(updatedPly.id, updatedPly, 'Priyam01032008@');
+              } catch {
+                // Ignore rescue error
+              }
+            }
+          }
+        }
+
+        setPlayers(mergedPlayers);
+        if (cloudData.teams.length > 0) {
+          setTeams(cloudData.teams);
+        }
       }
-    } catch {
-      if (isInitial) {
+
+      if (isMounted) {
         hasLoadedFromBackend.current = true;
       }
     }
+
+    initSharedCloudDatabase();
+
+    // Real-time Firestore listener: Every website user sees owner-uploaded pictures and details immediately
+    let unsubPlayers: (() => void) | undefined;
+    let unsubTeams: (() => void) | undefined;
+
+    try {
+      unsubPlayers = subscribeToPublicPlayers((cloudPlayers) => {
+        if (!isMounted || cloudPlayers.length === 0) return;
+        if (Date.now() - lastLocalMutationTime.current < 1500) return;
+        setPlayers(cloudPlayers);
+        if (rawTeamDocsRef.current.length > 0) {
+          setTeams(rawTeamDocsRef.current.map((td) => firestoreDocToTeam(td, cloudPlayers)));
+        }
+      });
+
+      unsubTeams = subscribeToPublicTeams((teamDocs) => {
+        if (!isMounted || teamDocs.length === 0) return;
+        rawTeamDocsRef.current = teamDocs;
+        if (Date.now() - lastLocalMutationTime.current < 1500) return;
+        setPlayers((currentPlayers) => {
+          setTeams(teamDocs.map((td) => firestoreDocToTeam(td, currentPlayers)));
+          return currentPlayers;
+        });
+      });
+    } catch (err) {
+      console.warn('Firestore realtime subscription warning:', err);
+    }
+
+    return () => {
+      isMounted = false;
+      if (unsubPlayers) unsubPlayers();
+      if (unsubTeams) unsubTeams();
+    };
   }, []);
 
-  useEffect(() => {
-    fetchSharedDatabase(true);
-    const interval = setInterval(() => {
-      fetchSharedDatabase(false);
-    }, 2500);
-    return () => clearInterval(interval);
-  }, [fetchSharedDatabase]);
-
-  // Background debounced sync to backend database (ONLY for authenticated Owners, NEVER for anonymous website visitors)
+  // Explicit full sync to both Firebase Firestore & Backend (Only when triggered by authenticated Owner)
   const syncToBackend = useCallback(async () => {
-    if (!hasLoadedFromBackend.current) return;
     const activeAuth = isAdminLoggedIn ? 'Priyam01032008@' : ownerAuthToken;
     if (!activeAuth) return;
 
+    lastLocalMutationTime.current = Date.now();
     try {
-      lastLocalMutationTime.current = Date.now();
-      const res = await dbApi.syncDatabase(
+      if (isAdminLoggedIn || activeAuth === 'Priyam01032008@') {
+        for (const p of players) {
+          await savePlayerToFirestore(p, 'Priyam01032008@');
+        }
+        for (const t of teams) {
+          await saveTeamToFirestore(t, 'Priyam01032008@');
+        }
+      }
+      await dbApi.syncDatabase(
         {
           teams,
           players,
@@ -181,22 +290,10 @@ export default function App() {
         },
         activeAuth
       );
-      if (res.success && res.data && Array.isArray(res.data.players)) {
-        setPlayers(res.data.players);
-      }
     } catch {
-      // Ignore background sync errors
+      // Ignore sync errors
     }
   }, [teams, players, history, settings, isAdminLoggedIn, ownerAuthToken]);
-
-  useEffect(() => {
-    if (!hasLoadedFromBackend.current) return;
-    if (!isAdminLoggedIn && !ownerAuthToken) return;
-    const timer = setTimeout(() => {
-      syncToBackend();
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [teams, players, history, settings, isAdminLoggedIn, ownerAuthToken, syncToBackend]);
 
   // Persist State to localStorage
   useEffect(() => {
@@ -384,7 +481,23 @@ export default function App() {
       soldPrice: winningPrice
     });
     setIsSoldModalOpen(true);
-  }, [currentPlayer, highestBidder, currentBid, addLog]);
+
+    // Persist sale to Firestore and Backend
+    const soldPlayerObj: Player = {
+      ...currentPlayer,
+      status: 'sold',
+      soldPrice: winningPrice,
+      soldTo: winnerId
+    };
+    const activeKey = isAdminLoggedIn ? 'Priyam01032008@' : ownerAuthToken || 'Priyam01032008@';
+    const newPurse = Math.max(0, highestBidder.purse - winningPrice);
+    const newOverseas = currentPlayer.isOverseas
+      ? highestBidder.overseasPlayers + 1
+      : highestBidder.overseasPlayers;
+
+    updatePlayerAuctionInFirestore(soldPlayerObj, activeKey).catch(() => {});
+    updateTeamPurseInFirestore(winnerId, newPurse, newOverseas, activeKey).catch(() => {});
+  }, [currentPlayer, highestBidder, currentBid, isAdminLoggedIn, ownerAuthToken, addLog]);
 
   // Mark Player as Unsold
   const handleMarkUnsold = useCallback(() => {
@@ -393,8 +506,9 @@ export default function App() {
     soundManager.playUnsoldBuzzer();
 
     // Update Player Status
+    const unsoldPlayerObj: Player = { ...currentPlayer, status: 'unsold' };
     setPlayers((prev) =>
-      prev.map((p) => (p.id === currentPlayer.id ? { ...p, status: 'unsold' } : p))
+      prev.map((p) => (p.id === currentPlayer.id ? unsoldPlayerObj : p))
     );
 
     // Record into History
@@ -402,7 +516,7 @@ export default function App() {
       id: `hist_${Date.now()}`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type: 'unsold',
-      player: { ...currentPlayer, status: 'unsold' },
+      player: unsoldPlayerObj,
       bids: []
     };
     setHistory((prev) => [historyItem, ...prev]);
@@ -411,7 +525,10 @@ export default function App() {
 
     setAuctionStatus('unsold');
     setIsTimerActive(false);
-  }, [currentPlayer, addLog]);
+
+    const activeKey = isAdminLoggedIn ? 'Priyam01032008@' : ownerAuthToken || 'Priyam01032008@';
+    updatePlayerAuctionInFirestore(unsoldPlayerObj, activeKey).catch(() => {});
+  }, [currentPlayer, isAdminLoggedIn, ownerAuthToken, addLog]);
 
   // Place Bid (Human or AI)
   const handlePlaceBid = useCallback(
@@ -519,9 +636,10 @@ export default function App() {
 
   // Owner Authentication verification (Master Email/Pass)
   const handleOwnerLogin = (emailInput: string, passInput: string): boolean => {
+    const cleanEmail = emailInput.trim().toLowerCase();
     if (
-      emailInput.trim().toLowerCase() === 'priyam1.3.2008@gmail.com' &&
-      passInput === 'Priyam01032008@'
+      (cleanEmail === 'priyam1.3.2008@gmail.com' || cleanEmail === 'roypriyam950@gmail.com') &&
+      passInput.trim() === 'Priyam01032008@'
     ) {
       setIsAdminLoggedIn(true);
       setOwnerAuthToken('Priyam01032008@');
@@ -593,33 +711,62 @@ export default function App() {
     [teams, addLog]
   );
 
-  // Master Owner player & image modifications (Immediately persisted to shared backend database for all website users)
+  // Master Owner player & image modifications (Immediately persisted to Firebase Firestore & shared backend for all website users)
   const handleAddPlayer = async (newPlayerData: Omit<Player, 'id' | 'status'>) => {
     lastLocalMutationTime.current = Date.now();
+    let finalPhoto = newPlayerData.photo;
+    if (finalPhoto && finalPhoto.startsWith('data:image/')) {
+      finalPhoto = await compressImageToDataUrl(finalPhoto);
+    }
     const newPlayer: Player = {
       ...newPlayerData,
+      photo: finalPhoto,
       id: `ply_${Date.now()}`,
       status: 'available'
     };
     setPlayers((prev) => [newPlayer, ...prev]);
-    const res = await dbApi.addPlayer(newPlayer, 'Priyam01032008@');
-    if (res.success && res.data && Array.isArray(res.data.players)) {
-      setPlayers(res.data.players);
-    } else if (res.success && res.player) {
-      setPlayers((prev) => prev.map((p) => (p.id === newPlayer.id ? res.player! : p)));
+
+    try {
+      const savedCloudPlayer = await savePlayerToFirestore(newPlayer, 'Priyam01032008@');
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === newPlayer.id ? savedCloudPlayer : p))
+      );
+    } catch (err) {
+      console.error('Failed to save new player to Firestore:', err);
     }
-    addLog(`Master Owner uploaded player "${newPlayer.name}" to shared website database.`, 'info');
+
+    await dbApi.addPlayer(newPlayer, 'Priyam01032008@');
+    addLog(`Master Owner uploaded player "${newPlayer.name}" to shared Firebase database.`, 'info');
   };
 
   const handleUpdatePlayer = async (id: string, updated: Partial<Player>) => {
     lastLocalMutationTime.current = Date.now();
-    setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
-    const res = await dbApi.updatePlayer(id, updated, 'Priyam01032008@');
-    if (res.success && res.data && Array.isArray(res.data.players)) {
-      setPlayers(res.data.players);
-    } else if (res.success && res.player) {
-      setPlayers((prev) => prev.map((p) => (p.id === id ? res.player! : p)));
+    let processedPhoto = updated.photo;
+    if (processedPhoto && processedPhoto.startsWith('data:image/')) {
+      processedPhoto = await compressImageToDataUrl(processedPhoto);
     }
+    const cleanUpdated: Partial<Player> =
+      processedPhoto !== undefined ? { ...updated, photo: processedPhoto } : updated;
+
+    const existingPlayer = players.find((p) => p.id === id);
+    const mergedPlayer: Player | null = existingPlayer
+      ? { ...existingPlayer, ...cleanUpdated, id }
+      : null;
+
+    setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, ...cleanUpdated } : p)));
+
+    if (mergedPlayer) {
+      try {
+        const savedCloudPlayer = await savePlayerToFirestore(mergedPlayer, 'Priyam01032008@');
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === id ? savedCloudPlayer : p))
+        );
+      } catch (err) {
+        console.error('Failed to update player in Firestore:', err);
+      }
+    }
+
+    await dbApi.updatePlayer(id, cleanUpdated, 'Priyam01032008@');
   };
 
   const handleDeletePlayer = async (id: string) => {
@@ -638,12 +785,21 @@ export default function App() {
       setHighestBidderId(null);
       setAuctionStatus('idle');
     }
+    try {
+      await deletePlayerFromFirestore(id);
+    } catch (err) {
+      console.error('Failed to delete player from Firestore:', err);
+    }
     await dbApi.deletePlayer(id, 'Priyam01032008@');
     addLog(`Player removed from tournament roster by Master Owner.`, 'info');
   };
 
   const handleAddTeam = async (teamData: Partial<Team> & { name: string; shortCode: string; primaryColor: string; secondaryColor: string; motto: string }) => {
     lastLocalMutationTime.current = Date.now();
+    let finalLogo = teamData.logoUrl;
+    if (finalLogo && finalLogo.startsWith('data:image/')) {
+      finalLogo = await compressImageToDataUrl(finalLogo);
+    }
     const newTeam: Team = {
       id: `team_${Date.now()}`,
       purse: 60000,
@@ -657,13 +813,16 @@ export default function App() {
       logoSymbol: '⚔',
       aiAggression: 'balanced',
       preferredRoles: ['Batter', 'Fast Bowler'],
-      ...teamData
+      ...teamData,
+      logoUrl: finalLogo
     };
     setTeams((prev) => [...prev, newTeam]);
-    const res = await dbApi.addTeam(newTeam, 'Priyam01032008@');
-    if (res.success && res.data && Array.isArray(res.data.teams)) {
-      setTeams(res.data.teams);
+    try {
+      await saveTeamToFirestore(newTeam, 'Priyam01032008@');
+    } catch (err) {
+      console.error('Failed to add team to Firestore:', err);
     }
+    await dbApi.addTeam(newTeam, 'Priyam01032008@');
   };
 
   const handleDeleteTeam = async (teamId: string) => {
@@ -682,23 +841,47 @@ export default function App() {
     if (highestBidderId === teamId) {
       setHighestBidderId(null);
     }
+    try {
+      await deleteTeamFromFirestore(teamId);
+    } catch (err) {
+      console.error('Failed to delete team from Firestore:', err);
+    }
     await dbApi.deleteTeam(teamId, 'Priyam01032008@');
     addLog(`Franchise removed from tournament roster by Master Owner.`, 'info');
   };
 
   const handleUpdateTeamPurse = async (teamId: string, newPurse: number) => {
     lastLocalMutationTime.current = Date.now();
+    const existingTeam = teams.find((t) => t.id === teamId);
     setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, purse: newPurse } : t)));
+    if (existingTeam) {
+      try {
+        await saveTeamToFirestore({ ...existingTeam, purse: newPurse }, 'Priyam01032008@');
+      } catch {
+        // Ignore
+      }
+    }
     await dbApi.updateTeam(teamId, { purse: newPurse }, 'Priyam01032008@');
   };
 
   const handleUpdateTeam = async (teamId: string, updated: Partial<Team>) => {
     lastLocalMutationTime.current = Date.now();
-    setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, ...updated } : t)));
-    const res = await dbApi.updateTeam(teamId, updated, 'Priyam01032008@');
-    if (res.success && res.data && Array.isArray(res.data.teams)) {
-      setTeams(res.data.teams);
+    let finalLogo = updated.logoUrl;
+    if (finalLogo && finalLogo.startsWith('data:image/')) {
+      finalLogo = await compressImageToDataUrl(finalLogo);
     }
+    const cleanUpdated: Partial<Team> =
+      finalLogo !== undefined ? { ...updated, logoUrl: finalLogo } : updated;
+    const existingTeam = teams.find((t) => t.id === teamId);
+    setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, ...cleanUpdated } : t)));
+    if (existingTeam) {
+      try {
+        await saveTeamToFirestore({ ...existingTeam, ...cleanUpdated, id: teamId }, 'Priyam01032008@');
+      } catch (err) {
+        console.error('Failed to update team in Firestore:', err);
+      }
+    }
+    await dbApi.updateTeam(teamId, cleanUpdated, 'Priyam01032008@');
   };
 
   const handleForceSellPlayer = (playerId: string, teamId: string, price: number) => {
@@ -807,7 +990,19 @@ export default function App() {
       // Close sold modal if open
       setIsSoldModalOpen(false);
 
-      // Sync Owner-only Refund & Re-auction with Backend Server
+      // Sync Owner-only Refund & Re-auction with Firebase Firestore & Backend Server
+      const activeKey = isAdminLoggedIn ? 'Priyam01032008@' : ownerAuthToken || 'Priyam01032008@';
+      updatePlayerAuctionInFirestore(resetPlayer, activeKey).catch(() => {});
+      if (refundTeamId) {
+        const rTeam = teams.find((t) => t.id === refundTeamId);
+        if (rTeam) {
+          const restoredPurse = Math.min(rTeam.initialPurse || 60000, rTeam.purse + refundAmount);
+          const restoredOverseas = targetPlayer.isOverseas
+            ? Math.max(0, rTeam.overseasPlayers - 1)
+            : rTeam.overseasPlayers;
+          updateTeamPurseInFirestore(refundTeamId, restoredPurse, restoredOverseas, activeKey).catch(() => {});
+        }
+      }
       dbApi.refundPlayerSale(playerId, ownerAuthToken || 'MASTER_OWNER_AUTH');
 
       const refundTeam = teams.find((t) => t.id === refundTeamId);
@@ -865,7 +1060,9 @@ export default function App() {
       // Remove unsold from history
       setHistory((prev) => prev.filter((h) => h.player.id !== playerId));
 
-      // Sync Owner-only Re-auction with Backend Server
+      // Sync Owner-only Re-auction with Firebase Firestore & Backend Server
+      const activeKey = isAdminLoggedIn ? 'Priyam01032008@' : ownerAuthToken || 'Priyam01032008@';
+      updatePlayerAuctionInFirestore(resetPlayer, activeKey).catch(() => {});
       dbApi.reauctionPlayer(playerId, ownerAuthToken || 'MASTER_OWNER_AUTH');
 
       addLog(`Backend Owner Re-Auction: ${targetPlayer.name} recalled and re-entered into auction pool.`, 'info');
