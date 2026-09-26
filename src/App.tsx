@@ -73,7 +73,16 @@ export default function App() {
   const [players, setPlayers] = useState<Player[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_PLAYERS);
-      return saved ? JSON.parse(saved) : INITIAL_PLAYERS;
+      if (!saved) return INITIAL_PLAYERS;
+      const parsed: Player[] = JSON.parse(saved);
+      if (!Array.isArray(parsed) || parsed.length === 0) return INITIAL_PLAYERS;
+      return parsed.map((p) => {
+        const initMatch = INITIAL_PLAYERS.find((ip) => ip.id === p.id);
+        if (initMatch?.photo && (!p.photo || p.photo.startsWith('/uploads/'))) {
+          return { ...p, photo: initMatch.photo };
+        }
+        return p;
+      });
     } catch {
       return INITIAL_PLAYERS;
     }
@@ -197,15 +206,21 @@ export default function App() {
       if (isMounted && cloudData) {
         let mergedPlayers = cloudData.players;
 
-        // Rescue any owner-uploaded raster photos from localStorage that weren't in Firestore yet
-        if (localPlayersToRescue.length > 0) {
-          for (const localPly of localPlayersToRescue) {
+        // Rescue any owner-uploaded raster photos from localStorage or INITIAL_PLAYERS that weren't in Firestore as data URLs yet
+        const rescueCandidates = [...localPlayersToRescue, ...INITIAL_PLAYERS.filter((ip) => ip.photo?.startsWith('data:image/'))];
+        if (rescueCandidates.length > 0) {
+          for (const localPly of rescueCandidates) {
             const matchIdx = mergedPlayers.findIndex(
               (cp) =>
                 cp.id === localPly.id ||
                 cp.name.trim().toLowerCase() === localPly.name.trim().toLowerCase()
             );
-            if (matchIdx !== -1 && !mergedPlayers[matchIdx].photo && localPly.photo) {
+            const existingPhoto = mergedPlayers[matchIdx]?.photo;
+            if (
+              matchIdx !== -1 &&
+              (!existingPhoto || existingPhoto.startsWith('/uploads/')) &&
+              localPly.photo
+            ) {
               try {
                 const compressed = await compressImageToDataUrl(localPly.photo);
                 const updatedPly: Player = { ...mergedPlayers[matchIdx], photo: compressed };
