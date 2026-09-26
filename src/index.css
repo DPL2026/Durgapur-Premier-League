@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'EB Garamond', Georgia, serif;
+    background-color: #FFFDF9;
+    color: #0F172A;
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Fraunces', 'Almendra Display', Georgia, serif;
+    font-variation-settings: "opsz" 144, "wght" 850, "SOFT" 100, "WONK" 1;
+    letter-spacing: 0.05em;
+    line-height: 1.08;
+    color: #0F172A;
+  }
+}
+
+/* Whimsical, Organic Storybook Typography */
+.font-display,
+.font-storybook {
+  font-family: 'Fraunces', 'Almendra Display', Georgia, serif;
+  font-variation-settings: "opsz" 144, "wght" 850, "SOFT" 100, "WONK" 1;
+  letter-spacing: 0.05em;
+  line-height: 1.06;
+}
+
+.font-body {
+  font-family: 'EB Garamond', Georgia, serif;
+}
+
+.font-score {
+  font-family: 'Fraunces', 'Almendra Display', Georgia, serif;
+  font-variation-settings: "opsz" 72, "wght" 700, "SOFT" 80, "WONK" 1;
+  letter-spacing: 0.03em;
+}
+
+/* Storybook Folio / Book Page Framing & Twilight Palette */
+.storybook-page {
+  background-color: #FFFDF9;
+  background-image: 
+    radial-gradient(ellipse at 15% 10%, rgba(212, 175, 55, 0.06) 0%, transparent 40%),
+    radial-gradient(ellipse at 85% 85%, rgba(30, 30, 56, 0.05) 0%, transparent 50%);
+}
+
+.folio-card {
+  background-color: #FAFAF8;
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+}
+
+.folio-card-twilight {
+  background: linear-gradient(145deg, #1E1E38 0%, #161a36 60%, #252347 100%);
+  color: #FFFDF9;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  box-shadow: 0 12px 35px -5px rgba(15, 23, 42, 0.25);
+}
+
+.gold-border {
+  border-color: rgba(212, 175, 55, 0.45);
+}
+
+.gold-gradient-text {
+  background: linear-gradient(135deg, #997819 0%, #D4AF37 50%, #876711 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Custom classic editorial scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F5F2EB;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.45);
+  border: 2px solid #F5F2EB;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D4AF37;
+}
