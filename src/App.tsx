@@ -129,44 +129,74 @@ export default function App() {
     soundManager.setMuted(!settings.soundEnabled);
   }, [settings.soundEnabled]);
 
-  // Load from backend database on initialization if available
-  useEffect(() => {
-    async function loadBackendData() {
-      try {
-        const res = await dbApi.getDatabase();
-        if (res.success && res.data && Array.isArray(res.data.teams) && Array.isArray(res.data.players)) {
-          setTeams(res.data.teams);
-          setPlayers(res.data.players);
-          if (res.data.history) setHistory(res.data.history);
-          if (res.data.settings) setSettings(res.data.settings);
-        }
-      } catch {
-        // Fallback to localStorage
+  const hasLoadedFromBackend = useRef<boolean>(false);
+  const lastLocalMutationTime = useRef<number>(0);
+
+  // Load from shared backend database on initialization AND poll for live Owner uploads so every website user sees uploaded pictures and details
+  const fetchSharedDatabase = useCallback(async (isInitial = false) => {
+    try {
+      // Avoid overwriting an owner's active local mutation within 2 seconds
+      if (!isInitial && Date.now() - lastLocalMutationTime.current < 2000) {
+        return;
+      }
+      const res = await dbApi.getDatabase();
+      if (res.success && res.data && Array.isArray(res.data.teams) && Array.isArray(res.data.players)) {
+        setTeams(res.data.teams);
+        setPlayers(res.data.players);
+        if (res.data.history) setHistory(res.data.history);
+        if (res.data.settings) setSettings(res.data.settings);
+      }
+      if (isInitial) {
+        hasLoadedFromBackend.current = true;
+      }
+    } catch {
+      if (isInitial) {
+        hasLoadedFromBackend.current = true;
       }
     }
-    loadBackendData();
   }, []);
 
-  // Background debounced sync to backend database
+  useEffect(() => {
+    fetchSharedDatabase(true);
+    const interval = setInterval(() => {
+      fetchSharedDatabase(false);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [fetchSharedDatabase]);
+
+  // Background debounced sync to backend database (ONLY for authenticated Owners, NEVER for anonymous website visitors)
   const syncToBackend = useCallback(async () => {
+    if (!hasLoadedFromBackend.current) return;
+    const activeAuth = isAdminLoggedIn ? 'Priyam01032008@' : ownerAuthToken;
+    if (!activeAuth) return;
+
     try {
-      await dbApi.syncDatabase({
-        teams,
-        players,
-        history,
-        settings
-      });
+      lastLocalMutationTime.current = Date.now();
+      const res = await dbApi.syncDatabase(
+        {
+          teams,
+          players,
+          history,
+          settings
+        },
+        activeAuth
+      );
+      if (res.success && res.data && Array.isArray(res.data.players)) {
+        setPlayers(res.data.players);
+      }
     } catch {
       // Ignore background sync errors
     }
-  }, [teams, players, history, settings]);
+  }, [teams, players, history, settings, isAdminLoggedIn, ownerAuthToken]);
 
   useEffect(() => {
+    if (!hasLoadedFromBackend.current) return;
+    if (!isAdminLoggedIn && !ownerAuthToken) return;
     const timer = setTimeout(() => {
       syncToBackend();
-    }, 1500);
+    }, 800);
     return () => clearTimeout(timer);
-  }, [teams, players, history, settings, syncToBackend]);
+  }, [teams, players, history, settings, isAdminLoggedIn, ownerAuthToken, syncToBackend]);
 
   // Persist State to localStorage
   useEffect(() => {
@@ -563,21 +593,37 @@ export default function App() {
     [teams, addLog]
   );
 
-  // Admin player modifications
-  const handleAddPlayer = (newPlayerData: Omit<Player, 'id' | 'status'>) => {
+  // Master Owner player & image modifications (Immediately persisted to shared backend database for all website users)
+  const handleAddPlayer = async (newPlayerData: Omit<Player, 'id' | 'status'>) => {
+    lastLocalMutationTime.current = Date.now();
     const newPlayer: Player = {
       ...newPlayerData,
       id: `ply_${Date.now()}`,
       status: 'available'
     };
     setPlayers((prev) => [newPlayer, ...prev]);
+    const res = await dbApi.addPlayer(newPlayer, 'Priyam01032008@');
+    if (res.success && res.data && Array.isArray(res.data.players)) {
+      setPlayers(res.data.players);
+    } else if (res.success && res.player) {
+      setPlayers((prev) => prev.map((p) => (p.id === newPlayer.id ? res.player! : p)));
+    }
+    addLog(`Master Owner uploaded player "${newPlayer.name}" to shared website database.`, 'info');
   };
 
-  const handleUpdatePlayer = (id: string, updated: Partial<Player>) => {
+  const handleUpdatePlayer = async (id: string, updated: Partial<Player>) => {
+    lastLocalMutationTime.current = Date.now();
     setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+    const res = await dbApi.updatePlayer(id, updated, 'Priyam01032008@');
+    if (res.success && res.data && Array.isArray(res.data.players)) {
+      setPlayers(res.data.players);
+    } else if (res.success && res.player) {
+      setPlayers((prev) => prev.map((p) => (p.id === id ? res.player! : p)));
+    }
   };
 
-  const handleDeletePlayer = (id: string) => {
+  const handleDeletePlayer = async (id: string) => {
+    lastLocalMutationTime.current = Date.now();
     setPlayers((prev) => prev.filter((p) => p.id !== id));
     setTeams((prev) =>
       prev.map((t) => ({
@@ -592,11 +638,12 @@ export default function App() {
       setHighestBidderId(null);
       setAuctionStatus('idle');
     }
-    dbApi.deletePlayer(id);
-    addLog(`Player removed from tournament roster by administrator.`, 'info');
+    await dbApi.deletePlayer(id, 'Priyam01032008@');
+    addLog(`Player removed from tournament roster by Master Owner.`, 'info');
   };
 
-  const handleAddTeam = (teamData: Partial<Team> & { name: string; shortCode: string; primaryColor: string; secondaryColor: string; motto: string }) => {
+  const handleAddTeam = async (teamData: Partial<Team> & { name: string; shortCode: string; primaryColor: string; secondaryColor: string; motto: string }) => {
+    lastLocalMutationTime.current = Date.now();
     const newTeam: Team = {
       id: `team_${Date.now()}`,
       purse: 60000,
@@ -613,10 +660,14 @@ export default function App() {
       ...teamData
     };
     setTeams((prev) => [...prev, newTeam]);
-    dbApi.addTeam(newTeam);
+    const res = await dbApi.addTeam(newTeam, 'Priyam01032008@');
+    if (res.success && res.data && Array.isArray(res.data.teams)) {
+      setTeams(res.data.teams);
+    }
   };
 
-  const handleDeleteTeam = (teamId: string) => {
+  const handleDeleteTeam = async (teamId: string) => {
+    lastLocalMutationTime.current = Date.now();
     setTeams((prev) => prev.filter((t) => t.id !== teamId));
     setPlayers((prev) =>
       prev.map((p) =>
@@ -631,16 +682,23 @@ export default function App() {
     if (highestBidderId === teamId) {
       setHighestBidderId(null);
     }
-    dbApi.deleteTeam(teamId);
-    addLog(`Franchise removed from tournament roster by administrator.`, 'info');
+    await dbApi.deleteTeam(teamId, 'Priyam01032008@');
+    addLog(`Franchise removed from tournament roster by Master Owner.`, 'info');
   };
 
-  const handleUpdateTeamPurse = (teamId: string, newPurse: number) => {
+  const handleUpdateTeamPurse = async (teamId: string, newPurse: number) => {
+    lastLocalMutationTime.current = Date.now();
     setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, purse: newPurse } : t)));
+    await dbApi.updateTeam(teamId, { purse: newPurse }, 'Priyam01032008@');
   };
 
-  const handleUpdateTeam = (teamId: string, updated: Partial<Team>) => {
+  const handleUpdateTeam = async (teamId: string, updated: Partial<Team>) => {
+    lastLocalMutationTime.current = Date.now();
     setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, ...updated } : t)));
+    const res = await dbApi.updateTeam(teamId, updated, 'Priyam01032008@');
+    if (res.success && res.data && Array.isArray(res.data.teams)) {
+      setTeams(res.data.teams);
+    }
   };
 
   const handleForceSellPlayer = (playerId: string, teamId: string, price: number) => {
@@ -961,6 +1019,8 @@ export default function App() {
               loadNextPlayerToStage(p.id);
               document.getElementById('section-stage')?.scrollIntoView({ behavior: 'smooth' });
             }}
+            onOpenOwnerBoard={() => setIsAdminOpen(true)}
+            isAdminLoggedIn={isAdminLoggedIn}
             currency={settings.currency}
           />
         </section>
