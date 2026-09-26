@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Player, Team, PlayerRole } from '../types';
 import { dbApi } from '../utils/api';
+import { compressImageToDataUrl, signInMasterOwnerWithGoogle } from '../firebase';
 import { TEAM_DEFAULT_LOGOS, CRICKET_PLAYER_PRESETS } from '../utils/assets';
 import { TeamBadge } from './TeamBadge';
 import { PlayerAvatar } from './PlayerAvatar';
@@ -153,60 +154,79 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
     }
   };
 
-  // Handle uploading custom photo for a player (persisted to shared server /uploads/ for all website users)
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, isForNewPlayer = false, directPlayer?: Player) => {
+  // Handle uploading custom photo for a player (persisted to Firebase Firestore & shared server for all website users)
+  const handlePhotoUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    isForNewPlayer = false,
+    directPlayer?: Player
+  ) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploadingImage(true);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const prefix = directPlayer
-          ? `player_${directPlayer.id}`
-          : isForNewPlayer
-          ? 'player_new'
-          : `player_${editingPlayer?.id || 'edit'}`;
+    if (!file) return;
 
-        const uploadRes = await dbApi.uploadOwnerImage(base64, prefix, 'Priyam01032008@');
-        const finalPhotoUrl = uploadRes.success && uploadRes.url ? uploadRes.url : base64;
-        setIsUploadingImage(false);
+    setIsUploadingImage(true);
+    try {
+      const compressedDataUrl = await compressImageToDataUrl(file, 580, 0.84);
+      const prefix = directPlayer
+        ? `player_${directPlayer.id}`
+        : isForNewPlayer
+        ? 'player_new'
+        : `player_${editingPlayer?.id || 'edit'}`;
 
-        if (directPlayer) {
-          onUpdatePlayer(directPlayer.id, { ...directPlayer, photo: finalPhotoUrl });
-          showNotification(`Uploaded new picture for "${directPlayer.name}"! Visible to all website users.`);
-        } else if (isForNewPlayer) {
-          setNewPlayerPhoto(finalPhotoUrl);
-          showNotification('Player picture uploaded! Click "Create & Add Player" to publish to all users.');
-        } else if (editingPlayer) {
-          setEditingPlayer({ ...editingPlayer, photo: finalPhotoUrl });
-          showNotification('Player picture uploaded! Click "Save Player Details" to publish to all users.');
-        }
-      };
-      reader.readAsDataURL(file);
+      await dbApi.uploadOwnerImage(compressedDataUrl, prefix, 'Priyam01032008@');
+      const finalPhotoUrl = compressedDataUrl;
+      setIsUploadingImage(false);
+
+      if (directPlayer) {
+        onUpdatePlayer(directPlayer.id, { ...directPlayer, photo: finalPhotoUrl });
+        showNotification(
+          `Uploaded & published picture for "${directPlayer.name}" to Firebase! Live for all website users.`
+        );
+      } else if (isForNewPlayer) {
+        setNewPlayerPhoto(finalPhotoUrl);
+        showNotification('Player picture ready! Click "Create & Add Player" to publish to all users.');
+      } else if (editingPlayer) {
+        const updatedPlayer = { ...editingPlayer, photo: finalPhotoUrl };
+        setEditingPlayer(updatedPlayer);
+        onUpdatePlayer(editingPlayer.id, updatedPlayer);
+        showNotification(
+          `Uploaded & published picture for "${editingPlayer.name}" to Firebase! Live for all website users.`
+        );
+      }
+    } catch {
+      setIsUploadingImage(false);
+      showNotification('Failed to process image file. Please try another image.');
+    } finally {
+      e.target.value = '';
     }
   };
 
   // Handle uploading custom team logo
-  const handleTeamLogoUpload = (e: React.ChangeEvent<HTMLInputElement>, isForNew = false) => {
+  const handleTeamLogoUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    isForNew = false
+  ) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploadingImage(true);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const prefix = isForNew ? 'team_new' : `team_${editingTeam?.id || 'edit'}`;
-        const uploadRes = await dbApi.uploadOwnerImage(base64, prefix, 'Priyam01032008@');
-        const finalLogoUrl = uploadRes.success && uploadRes.url ? uploadRes.url : base64;
-        setIsUploadingImage(false);
+    if (!file) return;
 
-        if (isForNew) {
-          setNewTeamLogoUrl(finalLogoUrl);
-        } else if (editingTeam) {
-          setEditingTeam({ ...editingTeam, logoUrl: finalLogoUrl });
-        }
-        showNotification('Team logo uploaded to shared server database!');
-      };
-      reader.readAsDataURL(file);
+    setIsUploadingImage(true);
+    try {
+      const compressedLogoUrl = await compressImageToDataUrl(file, 400, 0.86);
+      const prefix = isForNew ? 'team_new' : `team_${editingTeam?.id || 'edit'}`;
+      await dbApi.uploadOwnerImage(compressedLogoUrl, prefix, 'Priyam01032008@');
+      setIsUploadingImage(false);
+
+      if (isForNew) {
+        setNewTeamLogoUrl(compressedLogoUrl);
+      } else if (editingTeam) {
+        const updatedTeam = { ...editingTeam, logoUrl: compressedLogoUrl };
+        setEditingTeam(updatedTeam);
+        onUpdateTeam(editingTeam.id, updatedTeam);
+      }
+      showNotification('Team logo uploaded & published to Firebase database!');
+    } catch {
+      setIsUploadingImage(false);
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -388,12 +408,28 @@ export const OwnerBoard: React.FC<OwnerBoardProps> = ({
                   />
                 </div>
 
-                <div className="pt-2">
+                <div className="pt-2 space-y-2.5">
                   <button
                     type="submit"
                     className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-score font-black text-sm uppercase tracking-wider shadow-lg shadow-blue-600/40 transition cursor-pointer"
                   >
                     Unlock Master Owner Board
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setLoginError(null);
+                      const res = await signInMasterOwnerWithGoogle();
+                      if (res.success && res.email) {
+                        onLogin(res.email, 'Priyam01032008@');
+                      } else if (res.error) {
+                        setLoginError(res.error);
+                      }
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-blue-400/30 text-blue-100 font-score font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Or Sign In with Google (Owner Account)
                   </button>
                 </div>
               </form>
