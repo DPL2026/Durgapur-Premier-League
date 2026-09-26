@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/Durgapur-Premier-League-2026/',
+    base: '/Durgapur-Premier-League/',
 
     plugins: [react(), tailwindcss()],
 
