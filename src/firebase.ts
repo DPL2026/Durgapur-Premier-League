@@ -125,7 +125,6 @@ function playerToFirestoreDoc(player: Player) {
 export async function savePlayerToFirestore(
   player: Player
 ): Promise<Player> {
-
   try {
     const playerRef = doc(
       db,
@@ -155,9 +154,7 @@ export async function savePlayerToFirestore(
     return {
       ...player,
     };
-
   } catch (error) {
-
     console.error(
       '❌ Failed to save player to Firestore:',
       error
@@ -175,9 +172,7 @@ export async function updatePlayerAuctionInFirestore(
   playerId: string,
   updates: Partial<Player>
 ): Promise<void> {
-
   try {
-
     const playerRef = doc(
       db,
       'players',
@@ -191,9 +186,7 @@ export async function updatePlayerAuctionInFirestore(
         updatedAt: Date.now(),
       }
     );
-
   } catch (error) {
-
     console.error(
       '❌ Failed to update player:',
       error
@@ -210,7 +203,6 @@ export async function updatePlayerAuctionInFirestore(
 export async function deletePlayerFromFirestore(
   playerId: string
 ): Promise<void> {
-
   const playerRef = doc(
     db,
     'players',
@@ -249,7 +241,6 @@ export function firestoreDocToTeam(
 export async function saveTeamToFirestore(
   team: Team
 ): Promise<void> {
-
   const teamRef = doc(
     db,
     'teams',
@@ -273,7 +264,6 @@ export async function updateTeamPurseInFirestore(
   teamId: string,
   purse: number
 ): Promise<void> {
-
   const teamRef = doc(
     db,
     'teams',
@@ -297,7 +287,6 @@ export async function updateTeamInFirestore(
   teamId: string,
   updates: Partial<Team>
 ): Promise<void> {
-
   const teamRef = doc(
     db,
     'teams',
@@ -320,7 +309,6 @@ export async function updateTeamInFirestore(
 export async function deleteTeamFromFirestore(
   teamId: string
 ): Promise<void> {
-
   const teamRef = doc(
     db,
     'teams',
@@ -338,7 +326,6 @@ export function subscribeToPublicPlayers(
   callback: (players: Player[]) => void,
   onError?: (error: Error) => void
 ) {
-
   const playersRef =
     collection(db, 'players');
 
@@ -356,7 +343,6 @@ export function subscribeToPublicPlayers(
     playersQuery,
 
     (snapshot) => {
-
       const players: Player[] =
         snapshot.docs.map(
           (snapshotDoc) =>
@@ -367,7 +353,6 @@ export function subscribeToPublicPlayers(
     },
 
     (error) => {
-
       console.error(
         '❌ Firestore players subscription error:',
         error
@@ -386,7 +371,6 @@ export function subscribeToPublicTeams(
   callback: (teams: Team[]) => void,
   onError?: (error: Error) => void
 ) {
-
   const teamsRef =
     collection(db, 'teams');
 
@@ -404,7 +388,6 @@ export function subscribeToPublicTeams(
     teamsQuery,
 
     (snapshot) => {
-
       const teams: Team[] =
         snapshot.docs.map(
           (snapshotDoc) =>
@@ -417,7 +400,6 @@ export function subscribeToPublicTeams(
     },
 
     (error) => {
-
       console.error(
         '❌ Firestore teams subscription error:',
         error
@@ -461,18 +443,14 @@ export async function fetchOrSeedFirestore(
   let players: Player[];
 
   if (playersSnapshot.empty) {
-
     players = initialPlayers;
 
     for (const player of initialPlayers) {
-
       await savePlayerToFirestore(
         player
       );
     }
-
   } else {
-
     players =
       playersSnapshot.docs.map(
         (snapshotDoc) =>
@@ -501,18 +479,14 @@ export async function fetchOrSeedFirestore(
   let teams: Team[];
 
   if (teamsSnapshot.empty) {
-
     teams = initialTeams;
 
     for (const team of initialTeams) {
-
       await saveTeamToFirestore(
         team
       );
     }
-
   } else {
-
     teams =
       teamsSnapshot.docs.map(
         (snapshotDoc) =>
@@ -536,9 +510,7 @@ export async function savePlayerPhotoToFirestore(
   playerId: string,
   photoUrl: string
 ): Promise<void> {
-
   try {
-
     const playerRef = doc(
       db,
       'players',
@@ -557,9 +529,7 @@ export async function savePlayerPhotoToFirestore(
       '✅ Player photo saved:',
       playerId
     );
-
   } catch (error) {
-
     console.error(
       '❌ Failed to save player photo:',
       error
@@ -576,7 +546,6 @@ export async function savePlayerPhotoToFirestore(
 export async function removePlayerPhotoFromFirestore(
   playerId: string
 ): Promise<void> {
-
   const playerRef = doc(
     db,
     'players',
@@ -593,9 +562,7 @@ export async function removePlayerPhotoFromFirestore(
 }
 
 /* =========================================================
-   IMAGE COMPRESSION
-   =========================================================
-   Smaller image = safer Firestore document size.
+   IMAGE COMPRESSION - FILE
    ========================================================= */
 
 export async function compressImage(
@@ -612,16 +579,78 @@ export async function compressImage(
 
       reader.onload = () => {
 
-        const img =
-          new Image();
+        const source =
+          reader.result;
 
-        img.onload = () => {
+        if (typeof source !== 'string') {
+          reject(
+            new Error(
+              'Could not read image'
+            )
+          );
+          return;
+        }
+
+        processImageSource(
+          source,
+          maxWidth,
+          quality
+        )
+          .then(resolve)
+          .catch(reject);
+      };
+
+      reader.onerror = () => {
+        reject(
+          new Error(
+            'Could not read image'
+          )
+        );
+      };
+
+      reader.readAsDataURL(file);
+    }
+  );
+}
+
+/* =========================================================
+   IMAGE COMPRESSION - DATA URL / FILE
+   ========================================================= */
+
+async function processImageSource(
+  source: string,
+  maxWidth = 700,
+  quality = 0.65
+): Promise<string> {
+
+  return new Promise(
+    (resolve, reject) => {
+
+      const img =
+        new Image();
+
+      img.onload = () => {
+
+        try {
 
           let width =
+            img.naturalWidth ||
             img.width;
 
           let height =
+            img.naturalHeight ||
             img.height;
+
+          if (!width || !height) {
+            reject(
+              new Error(
+                'Invalid image dimensions'
+              )
+            );
+            return;
+          }
+
+          /* Resize large images */
 
           if (width > maxWidth) {
 
@@ -629,7 +658,9 @@ export async function compressImage(
               maxWidth / width;
 
             width =
-              maxWidth;
+              Math.round(
+                width * ratio
+              );
 
             height =
               Math.round(
@@ -654,15 +685,24 @@ export async function compressImage(
             );
 
           if (!ctx) {
-
             reject(
               new Error(
                 'Could not create canvas context'
               )
             );
-
             return;
           }
+
+          /* White background for JPEG */
+
+          ctx.fillStyle = '#ffffff';
+
+          ctx.fillRect(
+            0,
+            0,
+            width,
+            height
+          );
 
           ctx.drawImage(
             img,
@@ -672,17 +712,13 @@ export async function compressImage(
             height
           );
 
-          const dataUrl =
+          let dataUrl =
             canvas.toDataURL(
               'image/jpeg',
               quality
             );
 
-          /*
-           * Prevent accidentally saving an enormous
-           * Firestore document.
-           */
-          const estimatedBytes =
+          let estimatedBytes =
             Math.ceil(
               dataUrl.length * 0.75
             );
@@ -695,6 +731,40 @@ export async function compressImage(
             'KB'
           );
 
+          /*
+           * Firestore document size safety.
+           * Try lower quality if necessary.
+           */
+
+          if (
+            estimatedBytes >
+            850 * 1024
+          ) {
+
+            dataUrl =
+              canvas.toDataURL(
+                'image/jpeg',
+                0.50
+              );
+
+            estimatedBytes =
+              Math.ceil(
+                dataUrl.length * 0.75
+              );
+
+            console.log(
+              '📷 Re-compressed image size:',
+              Math.round(
+                estimatedBytes / 1024
+              ),
+              'KB'
+            );
+          }
+
+          /*
+           * Final safety check
+           */
+
           if (
             estimatedBytes >
             850 * 1024
@@ -702,55 +772,86 @@ export async function compressImage(
 
             reject(
               new Error(
-                'Image is still too large for Firestore. Please use a smaller image.'
+                'Image is still too large for Firestore. Please choose a smaller image.'
               )
             );
 
             return;
           }
 
-          resolve(dataUrl);
-        };
+          resolve(
+            dataUrl
+          );
 
-        img.onerror = () => {
+        } catch (error) {
 
           reject(
-            new Error(
-              'Could not load image'
-            )
+            error
           );
-        };
-
-        img.src =
-          reader.result as string;
+        }
       };
 
-      reader.onerror = () => {
+      img.onerror = () => {
 
         reject(
           new Error(
-            'Could not read image'
+            'Could not load image'
           )
         );
       };
 
-      reader.readAsDataURL(file);
+      img.src =
+        source;
     }
   );
 }
 
 /* =========================================================
    COMPATIBILITY EXPORT
+   Supports BOTH:
+   - File
+   - data:image/... string
    ========================================================= */
 
 export async function compressImageToDataUrl(
-  file: File,
+  input: File | string,
   maxWidth = 700,
   quality = 0.65
 ): Promise<string> {
 
+  /*
+   * If input is already a data URL,
+   * process it directly.
+   */
+
+  if (
+    typeof input === 'string'
+  ) {
+
+    if (
+      !input.startsWith(
+        'data:image/'
+      )
+    ) {
+      throw new Error(
+        'Invalid image data URL'
+      );
+    }
+
+    return processImageSource(
+      input,
+      maxWidth,
+      quality
+    );
+  }
+
+  /*
+   * If input is a File,
+   * use normal File compression.
+   */
+
   return compressImage(
-    file,
+    input,
     maxWidth,
     quality
   );
