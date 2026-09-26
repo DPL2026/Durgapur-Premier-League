@@ -23,12 +23,21 @@ export const dbApi = {
           'Cache-Control': 'no-cache'
         }
       });
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const json = await res.json();
-      return { success: true, data: json.data };
+
+      return {
+        success: true,
+        data: json.data
+      };
     } catch (err: any) {
       // Backend not running or endpoint unavailable
-      return { success: false, error: err.message };
+      return {
+        success: false,
+        error: err.message
+      };
     }
   },
 
@@ -38,8 +47,12 @@ export const dbApi = {
     ownerAuth?: string | null
   ): Promise<{ success: boolean; data?: DatabasePayload; error?: string }> {
     if (!ownerAuth) {
-      return { success: false, error: 'Not authenticated as owner' };
+      return {
+        success: false,
+        error: 'Not authenticated as owner'
+      };
     }
+
     try {
       const res = await fetch('/api/database/sync', {
         method: 'POST',
@@ -47,36 +60,54 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ ...payload, ownerAuth, lastUpdated: new Date().toISOString() })
+        body: JSON.stringify({
+          ...payload,
+          ownerAuth,
+          lastUpdated: new Date().toISOString()
+        })
       });
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const json = await res.json();
-      return { success: json.success, data: json.data };
+
+      return {
+        success: json.success,
+        data: json.data
+      };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return {
+        success: false,
+        error: err.message
+      };
     }
   },
 
-  // Upload player photo or team logo (Master Owner Only) -> returns public /uploads/... URL
+  // Upload player photo or team logo.
+  // GitHub Pages has no /api backend, so the image data is returned directly.
+  // The caller saves this image data to Firestore.
   async uploadOwnerImage(
     imageData: string,
     prefix = 'player',
     ownerAuth: string = DEFAULT_MASTER_AUTH
   ): Promise<{ success: boolean; url?: string; error?: string }> {
     try {
-      const res = await fetch('/api/owner/upload-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-owner-auth': ownerAuth
-        },
-        body: JSON.stringify({ imageData, prefix, ownerAuth })
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      return { success: Boolean(json.success), url: json.url };
+      if (!imageData || !imageData.startsWith('data:image/')) {
+        return {
+          success: false,
+          error: 'Invalid image data'
+        };
+      }
+
+      return {
+        success: true,
+        url: imageData
+      };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return {
+        success: false,
+        error: err?.message || 'Image upload failed'
+      };
     }
   },
 
@@ -93,13 +124,29 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ ...updates, ownerAuth })
+        body: JSON.stringify({
+          ...updates,
+          ownerAuth
+        })
       });
-      if (!res.ok) return { success: false };
+
+      if (!res.ok) {
+        return {
+          success: false
+        };
+      }
+
       const json = await res.json();
-      return { success: true, team: json.team, data: json.data };
+
+      return {
+        success: true,
+        team: json.team,
+        data: json.data
+      };
     } catch {
-      return { success: false };
+      return {
+        success: false
+      };
     }
   },
 
@@ -115,13 +162,29 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ ...team, ownerAuth })
+        body: JSON.stringify({
+          ...team,
+          ownerAuth
+        })
       });
-      if (!res.ok) return { success: false };
+
+      if (!res.ok) {
+        return {
+          success: false
+        };
+      }
+
       const json = await res.json();
-      return { success: true, team: json.team, data: json.data };
+
+      return {
+        success: true,
+        team: json.team,
+        data: json.data
+      };
     } catch {
-      return { success: false };
+      return {
+        success: false
+      };
     }
   },
 
@@ -137,11 +200,23 @@ export const dbApi = {
           'x-owner-auth': ownerAuth
         }
       });
-      if (!res.ok) return { success: false };
+
+      if (!res.ok) {
+        return {
+          success: false
+        };
+      }
+
       const json = await res.json();
-      return { success: true, data: json.data };
+
+      return {
+        success: true,
+        data: json.data
+      };
     } catch {
-      return { success: false };
+      return {
+        success: false
+      };
     }
   },
 
@@ -157,13 +232,29 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ ...player, ownerAuth })
+        body: JSON.stringify({
+          ...player,
+          ownerAuth
+        })
       });
-      if (!res.ok) return { success: false };
+
+      if (!res.ok) {
+        return {
+          success: false
+        };
+      }
+
       const json = await res.json();
-      return { success: true, player: json.player, data: json.data };
+
+      return {
+        success: true,
+        player: json.player,
+        data: json.data
+      };
     } catch {
-      return { success: false };
+      return {
+        success: false
+      };
     }
   },
 
@@ -180,13 +271,29 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ ...updates, ownerAuth })
+        body: JSON.stringify({
+          ...updates,
+          ownerAuth
+        })
       });
-      if (!res.ok) return { success: false };
+
+      if (!res.ok) {
+        return {
+          success: false
+        };
+      }
+
       const json = await res.json();
-      return { success: true, player: json.player, data: json.data };
+
+      return {
+        success: true,
+        player: json.player,
+        data: json.data
+      };
     } catch {
-      return { success: false };
+      return {
+        success: false
+      };
     }
   },
 
@@ -202,16 +309,30 @@ export const dbApi = {
           'x-owner-auth': ownerAuth
         }
       });
-      if (!res.ok) return { success: false };
+
+      if (!res.ok) {
+        return {
+          success: false
+        };
+      }
+
       const json = await res.json();
-      return { success: true, data: json.data };
+
+      return {
+        success: true,
+        data: json.data
+      };
     } catch {
-      return { success: false };
+      return {
+        success: false
+      };
     }
   },
 
   // Reset database on backend (Master Owner Only)
-  async resetDatabase(ownerAuth: string = DEFAULT_MASTER_AUTH): Promise<boolean> {
+  async resetDatabase(
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<boolean> {
     try {
       const res = await fetch('/api/database/reset', {
         method: 'POST',
@@ -219,8 +340,11 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ ownerAuth })
+        body: JSON.stringify({
+          ownerAuth
+        })
       });
+
       return res.ok;
     } catch {
       return false;
@@ -240,18 +364,31 @@ export const dbApi = {
     error?: string;
   }> {
     const cleanCode = (code || '').trim();
+
     try {
       const res = await fetch('/api/owner/verify-code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: cleanCode, teamId, email })
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          code: cleanCode,
+          teamId,
+          email
+        })
       });
+
       const json = await res.json();
+
       if (res.ok && json.success) {
         return json;
       }
+
       if (res.status === 401 || res.status === 403) {
-        return { success: false, error: json.error || 'Invalid hidden owner code' };
+        return {
+          success: false,
+          error: json.error || 'Invalid hidden owner code'
+        };
       }
     } catch {
       // Fallback verification if offline
@@ -273,9 +410,11 @@ export const dbApi = {
 
     if (
       cleanCode === 'Priyam01032008@' &&
-      (!email ||
+      (
+        !email ||
         email.trim().toLowerCase() === 'priyam1.3.2008@gmail.com' ||
-        email.trim().toLowerCase() === 'roypriyam950@gmail.com')
+        email.trim().toLowerCase() === 'roypriyam950@gmail.com'
+      )
     ) {
       return {
         success: true,
@@ -289,6 +428,7 @@ export const dbApi = {
       const valid =
         fallbackCodes[teamId] === cleanCode ||
         (teamId === 'team_dr' && cleanCode === 'DR360@');
+
       if (valid) {
         return {
           success: true,
@@ -297,19 +437,37 @@ export const dbApi = {
           authCode: cleanCode
         };
       }
-      return { success: false, error: 'Invalid hidden owner code for this franchise' };
+
+      return {
+        success: false,
+        error: 'Invalid hidden owner code for this franchise'
+      };
     }
 
     if (cleanCode === 'DR360@') {
-      return { success: true, role: 'team_owner', teamId: 'team_dr', authCode: cleanCode };
+      return {
+        success: true,
+        role: 'team_owner',
+        teamId: 'team_dr',
+        authCode: cleanCode
+      };
     }
+
     for (const [tId, secret] of Object.entries(fallbackCodes)) {
       if (secret === cleanCode) {
-        return { success: true, role: 'team_owner', teamId: tId, authCode: cleanCode };
+        return {
+          success: true,
+          role: 'team_owner',
+          teamId: tId,
+          authCode: cleanCode
+        };
       }
     }
 
-    return { success: false, error: 'Invalid hidden owner code. Access denied.' };
+    return {
+      success: false,
+      error: 'Invalid hidden owner code. Access denied.'
+    };
   },
 
   // Record authenticated owner bid on backend
@@ -322,9 +480,17 @@ export const dbApi = {
     try {
       const res = await fetch('/api/owner/bid', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, code, playerId, amount })
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          teamId,
+          code,
+          playerId,
+          amount
+        })
       });
+
       return res.ok;
     } catch {
       return false;
@@ -332,7 +498,10 @@ export const dbApi = {
   },
 
   // Backend Owner-only Refund & Re-auction
-  async refundPlayerSale(playerId: string, ownerAuth: string): Promise<boolean> {
+  async refundPlayerSale(
+    playerId: string,
+    ownerAuth: string
+  ): Promise<boolean> {
     try {
       const res = await fetch('/api/owner/refund', {
         method: 'POST',
@@ -340,8 +509,12 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ playerId, ownerAuth })
+        body: JSON.stringify({
+          playerId,
+          ownerAuth
+        })
       });
+
       return res.ok;
     } catch {
       return false;
@@ -349,7 +522,10 @@ export const dbApi = {
   },
 
   // Backend Owner-only Re-auction
-  async reauctionPlayer(playerId: string, ownerAuth: string): Promise<boolean> {
+  async reauctionPlayer(
+    playerId: string,
+    ownerAuth: string
+  ): Promise<boolean> {
     try {
       const res = await fetch('/api/owner/reauction', {
         method: 'POST',
@@ -357,8 +533,12 @@ export const dbApi = {
           'Content-Type': 'application/json',
           'x-owner-auth': ownerAuth
         },
-        body: JSON.stringify({ playerId, ownerAuth })
+        body: JSON.stringify({
+          playerId,
+          ownerAuth
+        })
       });
+
       return res.ok;
     } catch {
       return false;
