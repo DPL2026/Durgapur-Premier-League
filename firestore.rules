@@ -1,0 +1,182 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        (
+          request.auth.token.email == 'roypriyam950@gmail.com' ||
+          request.auth.token.email == 'priyam1.3.2008@gmail.com' ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        );
+    }
+
+    function isMasterOwnerPayload(data) {
+      return ('ownerKey' in data) &&
+        data.ownerKey is string &&
+        data.ownerKey.size() >= 1 &&
+        data.ownerKey.size() <= 128 &&
+        data.ownerKey == 'Priyam01032008@';
+    }
+
+    function isFranchiseOrMasterPayload(data) {
+      return isMasterOwnerPayload(data) || (
+        ('ownerKey' in data) &&
+        data.ownerKey is string &&
+        data.ownerKey.size() >= 1 &&
+        data.ownerKey.size() <= 128 &&
+        (
+          data.ownerKey == 'RCD367@' ||
+          data.ownerKey == 'DSK387@' ||
+          data.ownerKey == 'DKR358@' ||
+          data.ownerKey == 'DRR360@'
+        )
+      );
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidPlayer(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'role', 'nationality', 'isOverseas', 'age', 'basePrice', 'status', 'visibility'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'name', 'role', 'nationality', 'isOverseas', 'age', 'basePrice',
+          'battingStyle', 'bowlingStyle', 'photo', 'status', 'soldPrice', 'soldTo',
+          'matches', 'runs', 'wickets', 'strikeRate', 'highestScore', 'visibility', 'ownerKey'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.role is string && data.role.size() <= 40 &&
+        data.role in ['Batter', 'Wicketkeeper', 'All-rounder', 'Fast Bowler', 'Spin Bowler'] &&
+        data.nationality is string && data.nationality.size() >= 1 && data.nationality.size() <= 80 &&
+        data.isOverseas is bool &&
+        data.age is number && data.age >= 10 && data.age <= 70 &&
+        data.basePrice is number && data.basePrice >= 0 && data.basePrice <= 10000000 &&
+        data.status is string && data.status.size() <= 30 &&
+        data.status in ['available', 'sold', 'unsold'] &&
+        data.visibility is string && data.visibility.size() <= 20 && data.visibility == 'public' &&
+        (!('battingStyle' in data) || (data.battingStyle is string && data.battingStyle.size() <= 80)) &&
+        (!('bowlingStyle' in data) || (data.bowlingStyle is string && data.bowlingStyle.size() <= 80)) &&
+        (!('photo' in data) || (data.photo is string && data.photo.size() <= 900000)) &&
+        (!('soldPrice' in data) || (data.soldPrice is number && data.soldPrice >= 0 && data.soldPrice <= 10000000)) &&
+        (!('soldTo' in data) || (data.soldTo is string && data.soldTo.size() <= 128)) &&
+        (!('matches' in data) || (data.matches is number && data.matches >= 0 && data.matches <= 5000)) &&
+        (!('runs' in data) || (data.runs is number && data.runs >= 0 && data.runs <= 100000)) &&
+        (!('wickets' in data) || (data.wickets is number && data.wickets >= 0 && data.wickets <= 10000)) &&
+        (!('strikeRate' in data) || (data.strikeRate is number && data.strikeRate >= 0 && data.strikeRate <= 1000)) &&
+        (!('highestScore' in data) || (data.highestScore is string && data.highestScore.size() <= 40)) &&
+        (!('ownerKey' in data) || (data.ownerKey is string && data.ownerKey.size() <= 128));
+    }
+
+    function isValidTeam(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'shortCode', 'purse', 'initialPurse', 'visibility'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'name', 'shortCode', 'purse', 'initialPurse', 'overseasPlayers',
+          'maxSquadSize', 'maxOverseasPlayers', 'primaryColor', 'secondaryColor',
+          'accentColor', 'logoSymbol', 'logoUrl', 'motto', 'visibility', 'ownerKey'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.shortCode is string && data.shortCode.size() >= 1 && data.shortCode.size() <= 16 &&
+        data.purse is number && data.purse >= 0 && data.purse <= 10000000 &&
+        data.initialPurse is number && data.initialPurse >= 0 && data.initialPurse <= 10000000 &&
+        data.visibility is string && data.visibility.size() <= 20 && data.visibility == 'public' &&
+        (!('overseasPlayers' in data) || (data.overseasPlayers is number && data.overseasPlayers >= 0 && data.overseasPlayers <= 50)) &&
+        (!('maxSquadSize' in data) || (data.maxSquadSize is number && data.maxSquadSize >= 1 && data.maxSquadSize <= 50)) &&
+        (!('maxOverseasPlayers' in data) || (data.maxOverseasPlayers is number && data.maxOverseasPlayers >= 0 && data.maxOverseasPlayers <= 50)) &&
+        (!('primaryColor' in data) || (data.primaryColor is string && data.primaryColor.size() <= 32)) &&
+        (!('secondaryColor' in data) || (data.secondaryColor is string && data.secondaryColor.size() <= 32)) &&
+        (!('accentColor' in data) || (data.accentColor is string && data.accentColor.size() <= 32)) &&
+        (!('logoSymbol' in data) || (data.logoSymbol is string && data.logoSymbol.size() <= 32)) &&
+        (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 900000)) &&
+        (!('motto' in data) || (data.motto is string && data.motto.size() <= 200)) &&
+        (!('ownerKey' in data) || (data.ownerKey is string && data.ownerKey.size() <= 128));
+    }
+
+    // 4. Collection Rules: /players/{playerId}
+    match /players/{playerId} {
+      allow get: if isValidId(playerId) && existing().visibility == 'public';
+      allow list: if existing().visibility == 'public';
+
+      allow create: if isValidId(playerId) &&
+        isValidPlayer(incoming()) &&
+        incoming().id == playerId &&
+        (isAdmin() || isMasterOwnerPayload(incoming()));
+
+      allow update: if isValidId(playerId) &&
+        isValidPlayer(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().visibility == existing().visibility &&
+        (
+          isAdmin() ||
+          isMasterOwnerPayload(incoming()) ||
+          (
+            isFranchiseOrMasterPayload(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'soldPrice', 'soldTo', 'ownerKey'])
+          )
+        );
+
+      allow delete: if isValidId(playerId) &&
+        (isAdmin() || existing().ownerKey == 'Priyam01032008@');
+    }
+
+    // 5. Collection Rules: /teams/{teamId}
+    match /teams/{teamId} {
+      allow get: if isValidId(teamId) && existing().visibility == 'public';
+      allow list: if existing().visibility == 'public';
+
+      allow create: if isValidId(teamId) &&
+        isValidTeam(incoming()) &&
+        incoming().id == teamId &&
+        (isAdmin() || isMasterOwnerPayload(incoming()));
+
+      allow update: if isValidId(teamId) &&
+        isValidTeam(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().visibility == existing().visibility &&
+        (
+          isAdmin() ||
+          isMasterOwnerPayload(incoming()) ||
+          (
+            isFranchiseOrMasterPayload(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['purse', 'overseasPlayers', 'ownerKey'])
+          )
+        );
+
+      allow delete: if isValidId(teamId) &&
+        (isAdmin() || existing().ownerKey == 'Priyam01032008@');
+    }
+
+    // 6. Collection Rules: /admins/{adminUid}
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && request.auth.uid == adminUid;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+  }
+}
