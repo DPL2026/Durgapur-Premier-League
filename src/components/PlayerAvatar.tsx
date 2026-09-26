@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Player } from '../types';
 
 interface PlayerAvatarProps {
@@ -13,6 +13,10 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   isGlowing = false
 }) => {
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [player.photo]);
 
   // Silhouette styling based on role color theme
   const roleColors: Record<string, { bg1: string; bg2: string; accent: string }> = {
