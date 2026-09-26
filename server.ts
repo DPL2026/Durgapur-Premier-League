@@ -34,13 +34,35 @@ app.use(
   })
 );
 
-// Extract base64 data:image/... into a persistent file in /data/uploads/ and return /uploads/<filename>
+// Ensure player photos and team logos are self-contained data URLs (<= 890KB) so they load on every Cloud Run instance & Firestore
 function persistBase64Image(dataUrlOrPath: string | undefined, prefix: string): string | undefined {
   if (!dataUrlOrPath || typeof dataUrlOrPath !== 'string') return undefined;
   const trimmed = dataUrlOrPath.trim();
   if (!trimmed) return undefined;
 
-  // Keep SVG data URLs or external/static URLs as-is
+  // If it's a /uploads/ path, inline the file as a base64 data URL (using optimized file if available)
+  if (trimmed.startsWith('/uploads/')) {
+    const fileName = path.basename(trimmed);
+    const optCandidate = fileName.includes('1790400594970')
+      ? path.join(UPLOADS_DIR, 'player_ply_1790400594970_opt.png')
+      : path.join(UPLOADS_DIR, fileName);
+    const targetPath = fs.existsSync(optCandidate) ? optCandidate : path.join(UPLOADS_DIR, fileName);
+    if (fs.existsSync(targetPath)) {
+      try {
+        const buf = fs.readFileSync(targetPath);
+        if (buf.length <= 650000) {
+          const ext = path.extname(targetPath).toLowerCase().replace('.', '');
+          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+          return `data:${mime};base64,${buf.toString('base64')}`;
+        }
+      } catch {
+        // Fallback to path
+      }
+    }
+    return trimmed;
+  }
+
+  // Keep SVG data URLs or external URLs as-is
   if (!trimmed.startsWith('data:image/') || trimmed.startsWith('data:image/svg+xml')) {
     return trimmed;
   }
@@ -61,6 +83,11 @@ function persistBase64Image(dataUrlOrPath: string | undefined, prefix: string): 
     if (!fs.existsSync(filePath)) {
       const buffer = Buffer.from(base64Data, 'base64');
       fs.writeFileSync(filePath, buffer);
+    }
+
+    // If the base64 data URL is compact (<= 890,000 chars), return the self-contained data URL directly
+    if (trimmed.length <= 890000) {
+      return trimmed;
     }
     return `/uploads/${filename}`;
   } catch (err) {
@@ -182,7 +209,7 @@ const TEAM_OWNER_CODES: Record<string, string> = {
   team_dkxi: 'DKXI366@'
 };
 
-const MASTER_OWNER_EMAIL = 'priyam1.3.2008@gmail.com';
+const MASTER_OWNER_EMAILS = ['priyam1.3.2008@gmail.com', 'roypriyam950@gmail.com'];
 const MASTER_OWNER_PASS = 'Priyam01032008@';
 
 function verifyTeamCode(teamId: string, code: string): boolean {
@@ -236,7 +263,7 @@ app.post('/api/owner/verify-code', (req, res) => {
   // Check if Master Commissioner login
   if (
     email &&
-    email.trim().toLowerCase() === MASTER_OWNER_EMAIL &&
+    MASTER_OWNER_EMAILS.includes(email.trim().toLowerCase()) &&
     cleanCode === MASTER_OWNER_PASS
   ) {
     return res.json({
