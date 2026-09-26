@@ -1,0 +1,209 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "Official DPL 2026 player profile and uploaded portrait image visible to all website users and managed exclusively by the Master Owner.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique player identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Player full name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "description": "Primary cricket role",
+          "enum": ["Batter", "Wicketkeeper", "All-rounder", "Fast Bowler", "Spin Bowler"],
+          "maxLength": 40
+        },
+        "nationality": {
+          "type": "string",
+          "description": "Player nationality",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "isOverseas": {
+          "type": "boolean",
+          "description": "Whether the player counts as overseas"
+        },
+        "age": {
+          "type": "number",
+          "description": "Player age in years"
+        },
+        "basePrice": {
+          "type": "number",
+          "description": "Base auction reserve price"
+        },
+        "battingStyle": {
+          "type": "string",
+          "description": "Batting hand and style",
+          "maxLength": 80
+        },
+        "bowlingStyle": {
+          "type": "string",
+          "description": "Bowling arm and style",
+          "maxLength": 80
+        },
+        "photo": {
+          "type": "string",
+          "description": "Owner-uploaded player portrait image URL or data URL",
+          "maxLength": 900000
+        },
+        "status": {
+          "type": "string",
+          "description": "Auction status of the player",
+          "enum": ["available", "sold", "unsold"],
+          "maxLength": 30
+        },
+        "soldPrice": {
+          "type": "number",
+          "description": "Final sold price in auction"
+        },
+        "soldTo": {
+          "type": "string",
+          "description": "Winning franchise team ID",
+          "maxLength": 128
+        },
+        "matches": {
+          "type": "number",
+          "description": "Career matches played"
+        },
+        "runs": {
+          "type": "number",
+          "description": "Career runs scored"
+        },
+        "wickets": {
+          "type": "number",
+          "description": "Career wickets taken"
+        },
+        "strikeRate": {
+          "type": "number",
+          "description": "Career batting strike rate"
+        },
+        "highestScore": {
+          "type": "string",
+          "description": "Career highest score",
+          "maxLength": 40
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Public visibility flag for website visitors",
+          "enum": ["public"],
+          "maxLength": 20
+        },
+        "ownerKey": {
+          "type": "string",
+          "description": "Owner authorization key",
+          "maxLength": 128
+        }
+      },
+      "required": ["id", "name", "role", "nationality", "isOverseas", "age", "basePrice", "status", "visibility"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "DPL 2026 franchise team profile, purse, and uploaded brand logo.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique franchise team identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Franchise full name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "shortCode": {
+          "type": "string",
+          "description": "Franchise short code",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "purse": {
+          "type": "number",
+          "description": "Remaining auction purse"
+        },
+        "initialPurse": {
+          "type": "number",
+          "description": "Initial auction purse"
+        },
+        "overseasPlayers": {
+          "type": "number",
+          "description": "Count of overseas players in squad"
+        },
+        "maxSquadSize": {
+          "type": "number",
+          "description": "Maximum allowed squad size"
+        },
+        "maxOverseasPlayers": {
+          "type": "number",
+          "description": "Maximum allowed overseas players"
+        },
+        "primaryColor": {
+          "type": "string",
+          "description": "Primary hex color",
+          "maxLength": 32
+        },
+        "secondaryColor": {
+          "type": "string",
+          "description": "Secondary hex color",
+          "maxLength": 32
+        },
+        "accentColor": {
+          "type": "string",
+          "description": "Accent hex color",
+          "maxLength": 32
+        },
+        "logoSymbol": {
+          "type": "string",
+          "description": "Franchise emblem symbol",
+          "maxLength": 32
+        },
+        "logoUrl": {
+          "type": "string",
+          "description": "Uploaded franchise logo URL or data URL",
+          "maxLength": 900000
+        },
+        "motto": {
+          "type": "string",
+          "description": "Franchise motto",
+          "maxLength": 200
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Public visibility flag for website visitors",
+          "enum": ["public"],
+          "maxLength": 20
+        },
+        "ownerKey": {
+          "type": "string",
+          "description": "Owner authorization key",
+          "maxLength": 128
+        }
+      },
+      "required": ["id", "name", "shortCode", "purse", "initialPurse", "visibility"]
+    }
+  },
+  "firestore": {
+    "/players/{playerId}": {
+      "schema": { "$ref": "#/entities/Player" },
+      "description": "Publicly readable collection of DPL players and owner-uploaded pictures; write access restricted to authorized Owner."
+    },
+    "/teams/{teamId}": {
+      "schema": { "$ref": "#/entities/Team" },
+      "description": "Publicly readable collection of DPL franchises and logos; write access restricted to authorized Owner."
+    }
+  }
+}
