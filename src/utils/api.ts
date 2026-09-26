@@ -9,11 +9,20 @@ export interface DatabasePayload {
   lastUpdated?: string;
 }
 
+const DEFAULT_MASTER_AUTH = 'MASTER_OWNER_AUTH';
+
 export const dbApi = {
-  // Fetch latest database state from backend
+  // Fetch latest shared database state from backend (Public for all website users)
   async getDatabase(): Promise<{ success: boolean; data?: DatabasePayload; error?: string }> {
     try {
-      const res = await fetch('/api/database');
+      const res = await fetch('/api/database', {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          Pragma: 'no-cache',
+          'Cache-Control': 'no-cache'
+        }
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       return { success: true, data: json.data };
@@ -23,106 +32,195 @@ export const dbApi = {
     }
   },
 
-  // Sync entire state to backend database
-  async syncDatabase(payload: DatabasePayload): Promise<{ success: boolean; error?: string }> {
+  // Sync state to backend database (Restricted to authenticated Owners)
+  async syncDatabase(
+    payload: DatabasePayload,
+    ownerAuth?: string | null
+  ): Promise<{ success: boolean; data?: DatabasePayload; error?: string }> {
+    if (!ownerAuth) {
+      return { success: false, error: 'Not authenticated as owner' };
+    }
     try {
       const res = await fetch('/api/database/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, lastUpdated: new Date().toISOString() })
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ ...payload, ownerAuth, lastUpdated: new Date().toISOString() })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      return { success: json.success };
+      return { success: json.success, data: json.data };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   },
 
-  // Update a team's logo, colors, purse, or details
-  async updateTeam(teamId: string, updates: Partial<Team>): Promise<boolean> {
+  // Upload player photo or team logo (Master Owner Only) -> returns public /uploads/... URL
+  async uploadOwnerImage(
+    imageData: string,
+    prefix = 'player',
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; url?: string; error?: string }> {
     try {
-      const res = await fetch(`/api/teams/${teamId}`, {
+      const res = await fetch('/api/owner/upload-image', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ imageData, prefix, ownerAuth })
       });
-      return res.ok;
-    } catch {
-      return false;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return { success: Boolean(json.success), url: json.url };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
   },
 
-  // Add a new team
-  async addTeam(team: Team): Promise<boolean> {
+  // Update a team's logo, colors, purse, or details (Master Owner Only)
+  async updateTeam(
+    teamId: string,
+    updates: Partial<Team>,
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; team?: Team; data?: DatabasePayload }> {
+    try {
+      const res = await fetch(`/api/teams/${teamId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ ...updates, ownerAuth })
+      });
+      if (!res.ok) return { success: false };
+      const json = await res.json();
+      return { success: true, team: json.team, data: json.data };
+    } catch {
+      return { success: false };
+    }
+  },
+
+  // Add a new team (Master Owner Only)
+  async addTeam(
+    team: Team,
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; team?: Team; data?: DatabasePayload }> {
     try {
       const res = await fetch('/api/teams', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(team)
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ ...team, ownerAuth })
       });
-      return res.ok;
+      if (!res.ok) return { success: false };
+      const json = await res.json();
+      return { success: true, team: json.team, data: json.data };
     } catch {
-      return false;
+      return { success: false };
     }
   },
 
-  // Delete a team
-  async deleteTeam(teamId: string): Promise<boolean> {
+  // Delete a team (Master Owner Only)
+  async deleteTeam(
+    teamId: string,
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; data?: DatabasePayload }> {
     try {
       const res = await fetch(`/api/teams/${teamId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'x-owner-auth': ownerAuth
+        }
       });
-      return res.ok;
+      if (!res.ok) return { success: false };
+      const json = await res.json();
+      return { success: true, data: json.data };
     } catch {
-      return false;
+      return { success: false };
     }
   },
 
-  // Create or add a player
-  async addPlayer(player: Player): Promise<boolean> {
+  // Create or add a player with uploaded image & details (Master Owner Only)
+  async addPlayer(
+    player: Player,
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; player?: Player; data?: DatabasePayload }> {
     try {
       const res = await fetch('/api/players', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(player)
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ ...player, ownerAuth })
       });
-      return res.ok;
+      if (!res.ok) return { success: false };
+      const json = await res.json();
+      return { success: true, player: json.player, data: json.data };
     } catch {
-      return false;
+      return { success: false };
     }
   },
 
-  // Update a player's image, role, stats, price, or details
-  async updatePlayer(playerId: string, updates: Partial<Player>): Promise<boolean> {
+  // Update a player's image, role, stats, price, or details (Master Owner Only)
+  async updatePlayer(
+    playerId: string,
+    updates: Partial<Player>,
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; player?: Player; data?: DatabasePayload }> {
     try {
       const res = await fetch(`/api/players/${playerId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ ...updates, ownerAuth })
       });
-      return res.ok;
+      if (!res.ok) return { success: false };
+      const json = await res.json();
+      return { success: true, player: json.player, data: json.data };
     } catch {
-      return false;
+      return { success: false };
     }
   },
 
-  // Delete a player
-  async deletePlayer(playerId: string): Promise<boolean> {
+  // Delete a player (Master Owner Only)
+  async deletePlayer(
+    playerId: string,
+    ownerAuth: string = DEFAULT_MASTER_AUTH
+  ): Promise<{ success: boolean; data?: DatabasePayload }> {
     try {
       const res = await fetch(`/api/players/${playerId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'x-owner-auth': ownerAuth
+        }
       });
-      return res.ok;
+      if (!res.ok) return { success: false };
+      const json = await res.json();
+      return { success: true, data: json.data };
     } catch {
-      return false;
+      return { success: false };
     }
   },
 
-  // Reset database on backend
-  async resetDatabase(): Promise<boolean> {
+  // Reset database on backend (Master Owner Only)
+  async resetDatabase(ownerAuth: string = DEFAULT_MASTER_AUTH): Promise<boolean> {
     try {
-      const res = await fetch('/api/database/reset', { method: 'POST' });
+      const res = await fetch('/api/database/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
+        body: JSON.stringify({ ownerAuth })
+      });
       return res.ok;
     } catch {
       return false;
@@ -173,7 +271,10 @@ export const dbApi = {
       team_dkxi: 'DKXI366@'
     };
 
-    if (cleanCode === 'Priyam01032008@' && (!email || email.trim().toLowerCase() === 'priyam1.3.2008@gmail.com')) {
+    if (
+      cleanCode === 'Priyam01032008@' &&
+      (!email || email.trim().toLowerCase() === 'priyam1.3.2008@gmail.com')
+    ) {
       return {
         success: true,
         role: 'master_owner',
@@ -233,7 +334,10 @@ export const dbApi = {
     try {
       const res = await fetch('/api/owner/refund', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
         body: JSON.stringify({ playerId, ownerAuth })
       });
       return res.ok;
@@ -247,7 +351,10 @@ export const dbApi = {
     try {
       const res = await fetch('/api/owner/reauction', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-owner-auth': ownerAuth
+        },
         body: JSON.stringify({ playerId, ownerAuth })
       });
       return res.ok;
